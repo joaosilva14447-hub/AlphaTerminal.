@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
 
-# Configuração Master
+# Configuração Master de Elite
 st.set_page_config(page_title="04 SSR Terminal", layout="wide")
 
 st.markdown("""
@@ -19,89 +19,82 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=3600)
-def fetch_ssr_safe_engine():
+def fetch_ssr_bulletproof():
     try:
-        # 1. Fetch BTC Data
+        # --- 1. DOWNLOAD BTC ---
         btc_raw = yf.download("BTC-USD", period="max", interval="1d", progress=False)
         if btc_raw.empty:
-            return pd.DataFrame(), "Erro: Yahoo Finance não devolveu dados do BTC."
-
-        # Extração limpa (Lida com MultiIndex)
-        if isinstance(btc_raw.columns, pd.MultiIndex):
-            price_btc = btc_raw['Close']['BTC-USD']
-        else:
-            price_btc = btc_raw['Close']
+            return None, "Yahoo Finance falhou ao carregar BTC-USD."
             
+        # Extração de Preço (Lida com MultiIndex ou SingleIndex)
+        price_btc = btc_raw['Close']['BTC-USD'] if isinstance(btc_raw.columns, pd.MultiIndex) else btc_raw['Close']
         btc = pd.DataFrame({'price': price_btc})
         btc['mcap'] = btc['price'] * 19700000 
         btc.index = pd.to_datetime(btc.index).tz_localize(None)
-        
-        # 2. Fetch DefiLlama Stablecoin Data
-        url = "https://stablecoins.llama.fi/stablecoincharts/all"
-        response = requests.get(url, timeout=10)
-        if response.status_code != 200:
-            return pd.DataFrame(), f"Erro API DefiLlama: Status {response.status_code}"
-            
-        raw_stables = response.json()
-        stable_list = []
-        for entry in raw_stables:
-            stable_list.append({
-                'date': datetime.fromtimestamp(int(entry['date'])).strftime('%Y-%m-%d'),
-                'stable_mcap': entry['totalCirculatingUSD']
-            })
-        
-        stables_df = pd.DataFrame(stable_list)
-        stables_df['date'] = pd.to_datetime(stables_df['date'])
-        stables_df.set_index('date', inplace=True)
 
-        # 3. Join e Cálculo (Filtro 2017+)
+        # --- 2. DOWNLOAD STABLECOINS (DEFILLAMA) ---
+        stables_df = pd.DataFrame()
+        try:
+            url = "https://stablecoins.llama.fi/stablecoincharts/all"
+            response = requests.get(url, timeout=15)
+            if response.status_code == 200:
+                raw_stables = response.json()
+                stable_list = [{'date': datetime.fromtimestamp(int(e['date'])).strftime('%Y-%m-%d'), 'stable_mcap': e['totalCirculatingUSD']} for e in raw_stables]
+                stables_df = pd.DataFrame(stable_list)
+                stables_df['date'] = pd.to_datetime(stables_df['date'])
+                stables_df.set_index('date', inplace=True)
+        except:
+            pass # Falha silenciosa para ativar o backup abaixo
+
+        # --- 3. BACKUP MODE (Se DefiLlama falhar) ---
+        if stables_df.empty:
+            st.warning("⚠️ API On-Chain lenta. Ativando Backup via Volume de Liquidez...")
+            usdt_raw = yf.download("USDT-USD", period="max", interval="1d", progress=False)
+            vol_usdt = usdt_raw['Volume']['USDT-USD'] if isinstance(usdt_raw.columns, pd.MultiIndex) else usdt_raw['Volume']
+            stables_df = pd.DataFrame({'stable_mcap': vol_usdt.rolling(window=30).mean() * 10}) # Proxy de Capitalização
+            stables_df.index = pd.to_datetime(stables_df.index).tz_localize(None)
+
+        # --- 4. JOIN E CÁLCULO ---
         data = btc.join(stables_df, how='inner')
-        data = data[data.index >= '2017-01-01'].copy()
+        data = data[data.index >= '2017-08-01'].copy()
         
         if data.empty:
-            return pd.DataFrame(), "Erro: Cruzamento de dados resultou em tabela vazia."
+            return None, "Erro de sincronização de datas entre BTC e Stables."
 
-        # SSR = BTC Market Cap / Stablecoin Market Cap
         data['ssr_raw'] = data['mcap'] / data['stable_mcap']
         data['log_ssr'] = np.log(data['ssr_raw'])
         
-        # 4. Motor Z-Score
+        # Motor Z-Score
         window = 350
         data['mean'] = data['log_ssr'].rolling(window=window, min_periods=30).mean()
-        data['std'] = data['log_ssr'].rolling(window=window, min_periods=30).std()
+        data['std'] = data['log_ssr'].rolling(window=window).std()
         
-        # Inversão: Z+ (Aqua) = OVERSOLD (Buying Power)
+        # Inversão: Z+ (Aqua) = OVERSOLD
         data['z'] = ((data['mean'] - data['log_ssr']) / data['std']).clip(-3.5, 3.5)
         
         return data.dropna(subset=['z']), None
     except Exception as e:
-        return pd.DataFrame(), f"Erro Crítico: {str(e)}"
+        return None, f"Erro Crítico no Motor: {str(e)}"
 
 # Execução do Motor
-data, error_msg = fetch_ssr_safe_engine()
+data, error_msg = fetch_ssr_bulletproof()
 
 if error_msg:
     st.error(error_msg)
-    st.info("Tenta atualizar a página ou verifica a tua conexão à internet.")
-elif not data.empty:
+    st.info("Dica: Verifica se o teu firewall está a bloquear pedidos a APIs externas.")
+elif data is not None:
     last_z = data['z'].iloc[-1]
     
-    st.markdown("<h1 style='text-align: center; color: #3D5AFE;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓡𝓮𝓪𝓵 𝓢𝓽𝓪𝓫𝓵𝓮𝓬𝓸𝓲𝓷 𝓢𝓾𝓹𝓹𝓵𝔂 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #3D5AFE;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓢𝓽𝓪𝓫𝓵𝓮𝓬𝓸𝓲𝓷 𝓢𝓾𝓹𝓹𝓵𝔂 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
 
     # Matriz de Sentimento Granular
     status, s_color = "NEUTRAL", "#FFFFFF"
-    if last_z >= 2.0:
-        status, s_color = "💎 EXTREME OVERSOLD (HIGH BUYING POWER)", "#00FBFF"
-    elif 1.51 <= last_z < 2.0:
-        status, s_color = "🔹 OVERSOLD (BUYING PRESSURE)", "rgba(0, 251, 255, 0.8)"
-    elif 1.0 <= last_z <= 1.50:
-        status, s_color = "🔹 SLIGHT OVERSOLD", "rgba(0, 251, 255, 0.5)"
-    elif last_z <= -2.0:
-        status, s_color = "🔴 EXTREME OVERBOUGHT (LOW BUYING POWER)", "#3D5AFE"
-    elif -1.99 <= last_z <= -1.51:
-        status, s_color = "🔸 OVERBOUGHT (SELL PRESSURE)", "rgba(61, 90, 254, 0.8)"
-    elif -1.50 <= last_z <= -1.0:
-        status, s_color = "🔸 SLIGHT OVERBOUGHT", "rgba(61, 90, 254, 0.5)"
+    if last_z >= 2.0: status, s_color = "💎 EXTREME OVERSOLD (HIGH BUYING POWER)", "#00FBFF"
+    elif 1.51 <= last_z < 2.0: status, s_color = "🔹 OVERSOLD (BUYING PRESSURE)", "rgba(0, 251, 255, 0.8)"
+    elif 1.0 <= last_z <= 1.50: status, s_color = "🔹 SLIGHT OVERSOLD", "rgba(0, 251, 255, 0.5)"
+    elif last_z <= -2.0: status, s_color = "🔴 EXTREME OVERBOUGHT (LOW BUYING POWER)", "#3D5AFE"
+    elif -1.99 <= last_z <= -1.51: status, s_color = "🔸 OVERBOUGHT (SELL PRESSURE)", "rgba(61, 90, 254, 0.8)"
+    elif -1.50 <= last_z <= -1.0: status, s_color = "🔸 SLIGHT OVERBOUGHT", "rgba(61, 90, 254, 0.5)"
 
     c1, c2, c3 = st.columns([1, 1, 1.8])
     c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
@@ -116,7 +109,7 @@ elif not data.empty:
                              (3, "#00FBFF", "dot"), (2, "#00FBFF", "dash"), (0, "rgba(255,255,255,0.1)", "solid")]:
         fig.add_hline(y=val, line=dict(color=color, width=1.5, dash=dash), row=2, col=1)
 
-    # Fills
+    # Fills 0.4 Opacidade
     fig.add_trace(go.Scatter(x=data.index, y=[-2.0]*len(data), line=dict(width=0), showlegend=False), row=2, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=np.where(data['z'] <= -2.0, data['z'], -2.0), fill='tonexty', fillcolor='rgba(61, 90, 254, 0.4)', showlegend=False), row=2, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=[2.0]*len(data), line=dict(width=0), showlegend=False), row=2, col=1)
@@ -127,5 +120,3 @@ elif not data.empty:
     fig.update_yaxes(row=2, col=1, showgrid=False, autorange='reversed', range=[-3.3, 3.3], tickvals=[-3, -2, -1, 0, 1, 2, 3])
     
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-else:
-    st.warning("Aguardando resposta das APIs de liquidez on-chain...")

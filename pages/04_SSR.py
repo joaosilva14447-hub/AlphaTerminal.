@@ -70,9 +70,9 @@ if not data.empty:
     if last_z >= 2.0:
         status, s_color = "💎 EXTREME OVERSOLD (HIGH BUYING POWER)", "#00FBFF"
     elif 1.51 <= last_z < 2.0:
-        status, s_color = "🔹 OVERSOLD (BUYING PRESSURE)", "rgba(0, 251, 255, 0.8)"
+        status, s_color = "🔹 OVERSOLD (BUYING PRESSURE)", "rgba(0, 251, 255, 0.7)"
     elif 1.0 <= last_z <= 1.50:
-        status, s_color = "🔹 SLIGHT OVERSOLD", "rgba(0, 251, 255, 0.5)"
+        status, s_color = "🔹 SLIGHT OVERSOLD", "rgba(0, 251, 254, 0.5)"
     
     # Lógica OVERBOUGHT (Blue - Liquidez Escassa)
     elif last_z <= -2.0:

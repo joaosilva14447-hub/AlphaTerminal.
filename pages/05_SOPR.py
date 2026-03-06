@@ -17,33 +17,31 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=120)
-def fetch_sopr_engine():
+def fetch_sopr_distinct_engine():
     try:
         # Download BTC Data
         df = yf.download("BTC-USD", period="max", interval="1d", progress=False)
         if df.empty: return pd.DataFrame()
 
-        # Extração Robusta
+        # Extração de Preço
         price = df['Close']['BTC-USD'] if isinstance(df.columns, pd.MultiIndex) else df['Close']
         data = pd.DataFrame({'price': price})
         
-        # --- MOTOR SOPR PROXY (Realized Profit/Loss Ratio) ---
-        # No terminal individual, usamos a variação do preço face ao Realized Proxy
-        # para simular a rentabilidade média das moedas movidas.
-        data['realized_proxy'] = data['price'].rolling(window=365).mean()
-        data['sopr_raw'] = data['price'] / data['realized_proxy']
+        # --- DIFERENCIAÇÃO TÉCNICA (SOPR vs MVRV) ---
+        # MVRV usa 365 dias (Macro Valuation)
+        # SOPR agora usa 90 dias (Sentiment/Profit Taking Cycle)
+        data['realized_short'] = data['price'].rolling(window=90).mean()
+        data['sopr_raw'] = data['price'] / data['realized_short']
         
         # 1. Compressão Logarítmica
         data['log_sopr'] = np.log(data['sopr_raw'])
         
-        # 2. Motor Z-Score Reativo (Janela 350)
+        # 2. Motor Z-Score Reativo
         window = 350
         data['mean'] = data['log_sopr'].rolling(window=window).mean()
         data['std'] = data['log_sopr'].rolling(window=window).std()
         
-        # 3. Inversão de Paridade (Cumpriremos a Regra Alpha):
-        # Queremos que DOR (Loss/SOPR < 1) = Aqua (Cima/Compra)
-        # Queremos que PRAZER (Profit/SOPR > 1) = Blue (Baixo/Venda)
+        # 3. Inversão de Paridade: DOR = Aqua (Cima) | EUFORIA = Blue (Baixo)
         data['z'] = ((data['mean'] - data['log_sopr']) / data['std']).clip(-3.5, 3.5)
         
         return data.dropna()
@@ -51,32 +49,19 @@ def fetch_sopr_engine():
         st.error(f"Engine Alert: {str(e)}")
         return pd.DataFrame()
 
-data = fetch_sopr_engine()
+data = fetch_sopr_distinct_engine()
 
 if not data.empty:
     last_z = data['z'].iloc[-1]
     
     st.markdown("<h1 style='text-align: center; color: #3D5AFE;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓢𝓹𝓮𝓷𝓽 𝓞𝓾𝓽𝓹𝓾𝓽 𝓟𝓻𝓸𝓯𝓲𝓽 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
 
-    # --- MATRIZ DE SENTIMENTO GRANULAR (Paridade MVRV) ---
+    # Matriz de Sentimento (Focada em Realização de Lucro)
     status, s_color = "NEUTRAL", "#FFFFFF"
-
     if last_z >= 2.0:
-        status, s_color = "💎 EXTREME CAPITULATION (BUY ZONE)", "#00FBFF"
-    elif 1.51 <= last_z < 2.0:
-        status, s_color = "🔹 PAIN / FEAR", "rgba(0, 251, 255, 0.8)"
-    elif 1.0 <= last_z <= 1.50:
-        status, s_color = "🔹 SLIGHT PAIN", "rgba(0, 251, 255, 0.5)"
-    
+        status, s_color = "💎 CAPITULATION (LOSS TAKING)", "#00FBFF"
     elif last_z <= -2.0:
-        status, s_color = "🔴 EXTREME EUPHORIA (SELL ZONE)", "#3D5AFE"
-    elif -1.99 <= last_z <= -1.51:
-        status, s_color = "🔸 HIGH PROFIT TAKING", "rgba(61, 90, 254, 0.8)"
-    elif -1.50 <= last_z <= -1.0:
-        status, s_color = "🔸 SLIGHT OPTIMISM", "rgba(61, 90, 254, 0.5)"
-    
-    else:
-        status, s_color = "NEUTRAL / RECOVERY", "#FFFFFF"
+        status, s_color = "🔴 EUPHORIA (PROFIT TAKING)", "#3D5AFE"
 
     c1, c2, c3 = st.columns([1, 1, 1.8])
     c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")

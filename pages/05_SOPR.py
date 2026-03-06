@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Configuração Master de Elite
-st.set_page_config(page_title="06 SOPR High-Fidelity", layout="wide")
+st.set_page_config(page_title="06 SOPR Glow Terminal", layout="wide")
 
 st.markdown("""
 <style>
@@ -17,9 +17,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=120)
-def fetch_sopr_vwrp_engine():
+def fetch_sopr_glow_engine():
     try:
-        # 1. Download BTC Price and Volume
+        # Download BTC Price and Volume
         df = yf.download("BTC-USD", period="max", interval="1d", progress=False)
         if df.empty: return pd.DataFrame()
 
@@ -35,8 +35,6 @@ def fetch_sopr_vwrp_engine():
         data.index = pd.to_datetime(data.index).tz_localize(None)
 
         # --- MOTOR VWRP (Volume-Weighted Realized Price) ---
-        # Calculamos o preço médio ponderado pelo volume (Janela de 90 dias)
-        # Aproximação fiel ao SOPR On-Chain: Preço Atual / Preço Médio de Aquisição
         window = 90
         data['pv'] = data['price'] * data['volume']
         data['vwrp'] = data['pv'].rolling(window=window).sum() / data['volume'].rolling(window=window).sum()
@@ -47,7 +45,7 @@ def fetch_sopr_vwrp_engine():
         # 1. Compressão Logarítmica para Estabilidade
         data['log_sopr'] = np.log(data['sopr_raw'].replace(0, np.nan)).ffill()
         
-        # 2. Motor Z-Score (Janela Institucional 350 dias para normalizar o sinal)
+        # 2. Motor Z-Score (Janela Institucional 350 dias)
         z_window = 350
         data['mean'] = data['log_sopr'].rolling(window=z_window).mean()
         data['std'] = data['log_sopr'].rolling(window=z_window).std()
@@ -61,39 +59,69 @@ def fetch_sopr_vwrp_engine():
         st.error(f"SOPR Engine Error: {str(e)}")
         return pd.DataFrame()
 
-data = fetch_sopr_vwrp_engine()
+data = fetch_sopr_glow_engine()
 
 if not data.empty:
     last_z = data['z'].iloc[-1]
     
+    # Título Institucional Blue
     st.markdown("<h1 style='text-align: center; color: #3D5AFE;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓢𝓽𝓪𝓫𝓵𝓮𝓬𝓸𝓲𝓷 𝓢𝓾𝓹𝓹𝓵𝔂 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
 
-    # Matriz de Sentimento (Baseada em Realização de Lucro/Prejuízo)
-    status, s_color = "NEUTRAL", "#FFFFFF"
+    # --- MATRIZ DE SENTIMENTO GRANULAR COM GLOW ---
+    status, s_color = "NEUTRAL / ACCUMULATION", "#FFFFFF"
+
+    # Lógica OVERSOLD (Aqua - Compra / Alta Capitulação)
     if last_z >= 2.0:
         status, s_color = "💎 EXTREME CAPITULATION (LOSS TAKING)", "#00FBFF"
+        # Efeito Glow Aqua (Cima)
+        st.markdown(f"""
+            <style>
+                h1 {{ 
+                    color: {s_color} !important;
+                    text-shadow: 0 0 10px {s_color}, 0 0 20px {s_color}, 0 0 30px #00FFFF, 0 0 40px #00FFFF !important;
+                }}
+            </style>
+        """, unsafe_allow_html=True)
+        
     elif 1.0 <= last_z < 2.0:
         status, s_color = "🔹 FEAR / PAIN", "rgba(0, 251, 255, 0.7)"
+    
+    # Lógica OVERBOUGHT (Blue - Venda / Alta Euforia)
     elif last_z <= -2.0:
         status, s_color = "🔴 EXTREME EUPHORIA (PROFIT TAKING)", "#3D5AFE"
+        # Efeito Glow Blue (Baixo) - Substituindo o Roxo
+        st.markdown(f"""
+            <style>
+                h1 {{ 
+                    color: {s_color} !important;
+                    text-shadow: 0 0 10px {s_color}, 0 0 20px {s_color}, 0 0 30px #0000FF, 0 0 40px #0000FF !important;
+                }}
+            </style>
+        """, unsafe_allow_html=True)
+        
     elif -2.0 < last_z <= -1.0:
         status, s_color = "🔸 HIGH OPTIMISM", "rgba(61, 90, 254, 0.7)"
+    
+    else:
+        status, s_color = "NEUTRAL / RECOVERY", "#FFFFFF"
 
+    # Grelha de Métricas
     c1, c2, c3 = st.columns([1, 1, 1.8])
     c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
     c2.metric("SOPR Z-SCORE", f"{last_z:.2f} SD")
     c3.markdown(f"<h1 style='text-align: right; color: {s_color}; font-size: 24px; margin-top: -5px;'>{status}</h1>", unsafe_allow_html=True)
 
+    # Plot Construction
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.65, 0.35])
     fig.add_trace(go.Scatter(x=data.index, y=data['price'], name="Price", line=dict(color='white', width=2)), row=1, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='#888', width=1.5)), row=2, col=1)
 
-    # Escala 3 SD
+    # Escala 3 SD com cores correspondentes
     for val, color, dash in [(-3, "#3D5AFE", "dot"), (-2, "#3D5AFE", "dash"), 
                              (3, "#00FBFF", "dot"), (2, "#00FBFF", "dash"), (0, "rgba(255,255,255,0.1)", "solid")]:
         fig.add_hline(y=val, line=dict(color=color, width=1.5, dash=dash), row=2, col=1)
 
-    # Fills 0.4 Opacidade
+    # Fills Ponderados
     fig.add_trace(go.Scatter(x=data.index, y=[-2.0]*len(data), line=dict(width=0), showlegend=False), row=2, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=np.where(data['z'] <= -2.0, data['z'], -2.0), fill='tonexty', fillcolor='rgba(61, 90, 254, 0.4)', showlegend=False), row=2, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=[2.0]*len(data), line=dict(width=0), showlegend=False), row=2, col=1)
@@ -101,6 +129,7 @@ if not data.empty:
 
     fig.update_layout(template="plotly_dark", paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F", height=1000, margin=dict(l=60, r=60, t=50, b=60), showlegend=False)
     fig.update_yaxes(type="log", row=1, col=1, showgrid=False)
+    # Inversão para que Z+ (DOR/Aqua) esteja no topo
     fig.update_yaxes(row=2, col=1, showgrid=False, autorange='reversed', range=[-3.3, 3.3], tickvals=[-3, -2, -1, 0, 1, 2, 3])
     
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})

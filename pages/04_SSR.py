@@ -5,8 +5,8 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Configuração Master
-st.set_page_config(page_title="04 SSR Terminal", layout="wide")
+# Configuração Master do Terminal
+st.set_page_config(page_title="04 SSR Ultimate History", layout="wide")
 
 st.markdown("""
 <style>
@@ -17,58 +17,58 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=120)
-def fetch_ssr_robust_engine():
+def fetch_ssr_ultimate_engine():
     try:
-        # Download unificado para garantir sincronia de datas
-        tickers = ["BTC-USD", "USDT-USD"]
-        df = yf.download(tickers, period="max", interval="1d", progress=False)
+        # 1. Download Independente para maximizar o histórico de cada um
+        btc = yf.download("BTC-USD", period="max", interval="1d", progress=False)
+        usdt = yf.download("USDT-USD", period="max", interval="1d", progress=False)
         
-        if df.empty: return pd.DataFrame()
+        if btc.empty: return pd.DataFrame()
 
-        # Tratamento de MultiIndex (Yahoo Finance 2024/2026 Format)
-        if isinstance(df.columns, pd.MultiIndex):
-            price_btc = df['Close']['BTC-USD']
-            vol_usdt = df['Volume']['USDT-USD']
-        else:
-            # Fallback para versões mais antigas ou retornos simples
-            price_btc = df['Close'] if 'BTC-USD' not in df else df['Close']['BTC-USD']
-            vol_usdt = df['Volume'] if 'USDT-USD' not in df else df['Volume']['USDT-USD']
+        # Extração Robusta (Lida com Single ou MultiIndex)
+        def get_col(df, name):
+            if isinstance(df.columns, pd.MultiIndex):
+                return df[name].iloc[:, 0]
+            return df[name]
 
-        # Criar DataFrame limpo e remover NaNs iniciais (onde USDT ainda não existia)
-        data = pd.DataFrame({'price': price_btc, 'usdt_vol': vol_usdt}).dropna()
+        price_btc = get_col(btc, 'Close')
+        vol_usdt = get_col(usdt, 'Volume') if not usdt.empty else pd.Series()
+
+        # 2. Fusão de Dados (Outer Join para manter o histórico de 2014 do BTC)
+        data = pd.DataFrame({'price': price_btc})
+        data = data.join(pd.DataFrame({'usdt_vol': vol_usdt}), how='left')
         
-        # --- MOTOR DE CÁLCULO SSR ---
-        # Evitar divisão por zero se o volume for 0
-        data['usdt_vol'] = data['usdt_vol'].replace(0, np.nan).ffill()
-        
-        # SSR = Preço BTC / Volume USDT (Média de 7 dias para capturar o fluxo de liquidez)
+        # --- MOTOR DE CÁLCULO SSR (Ativação Pós-2017) ---
+        # Substituímos zeros e calculamos o rácio onde existe volume
+        data['usdt_vol'] = data['usdt_vol'].replace(0, np.nan)
         data['ssr_raw'] = data['price'] / data['usdt_vol'].rolling(window=7).mean()
         
-        # 1. Compressão Logarítmica
+        # 3. Transformação Logarítmica e Z-Score (Adaptativo)
         data['log_ssr'] = np.log(data['ssr_raw'])
         
-        # 2. Z-Score Reativo (Sem smoothing) - Janela 350
         window = 350
+        # min_periods=30 permite que o sinal apareça logo em 2017
         data['mean'] = data['log_ssr'].rolling(window=window, min_periods=30).mean()
         data['std'] = data['log_ssr'].rolling(window=window, min_periods=30).std()
         
-        # 3. Inversão de Paridade: (Média - Atual) para Buying Power estar no Topo (Aqua)
+        # Inversão para paridade visual: Buying Power = Topo (Aqua)
         data['z'] = ((data['mean'] - data['log_ssr']) / data['std']).clip(-3.5, 3.5)
         
-        return data.dropna()
+        return data # Não usamos dropna() aqui para manter o histórico de preço antigo
     except Exception as e:
-        # Debug visual para identificares o erro se persistir
         st.error(f"Engine Alert: {str(e)}")
         return pd.DataFrame()
 
-data = fetch_ssr_robust_engine()
+data = fetch_ssr_ultimate_engine()
 
 if not data.empty:
-    last_z = data['z'].iloc[-1]
+    # Captura o último valor não nulo para as métricas
+    last_valid_idx = data['z'].last_valid_index()
+    last_z = data.loc[last_valid_idx, 'z'] if last_valid_idx else 0
     
     st.markdown("<h1 style='text-align: center; color: #00FBFF;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓢𝓽𝓪𝓫𝓵𝓮𝓬𝓸𝓲𝓷 𝓢𝓾𝓹𝓹𝓵𝔂 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
 
-    # Matriz de Sentimento (Paridade total com MVRV)
+    # Matriz de Sentimento
     status, s_color = "NEUTRAL", "#FFFFFF"
     if last_z >= 2.0: status, s_color = "💎 HIGH BUYING POWER", "#00FBFF"
     elif last_z <= -2.0: status, s_color = "🔴 LOW BUYING POWER", "#3D5AFE"
@@ -81,10 +81,14 @@ if not data.empty:
     # Plot Multipainel
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.65, 0.35])
     
+    # Subplot 1: Preço do BTC (Desde 2014)
     fig.add_trace(go.Scatter(x=data.index, y=data['price'], name="BTC", line=dict(color='white', width=2)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='#888', width=1.5)), row=2, col=1)
+    
+    # Subplot 2: SSR Z-Score (Desde 2017)
+    # Plotly ignora automaticamente os valores nulos (NaN) de 2014-2017
+    fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='#888', width=1.5), connectgaps=False), row=2, col=1)
 
-    # Linhas de Escala 3 SD
+    # Escala de 3 SDs
     for val, color, dash in [(-3, "#3D5AFE", "dot"), (-2, "#3D5AFE", "dash"), 
                              (3, "#00FBFF", "dot"), (2, "#00FBFF", "dash"), 
                              (0, "rgba(255,255,255,0.1)", "solid")]:
@@ -102,7 +106,7 @@ if not data.empty:
     fig.update_yaxes(
         row=2, col=1, 
         showgrid=False, 
-        autorange='reversed', # Aqua em Cima, Blue em Baixo
+        autorange='reversed', 
         range=[-3.3, 3.3], 
         tickvals=[-3, -2, -1, 0, 1, 2, 3]
     )

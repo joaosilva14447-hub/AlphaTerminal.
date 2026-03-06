@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Configuração Master de Elite
-st.set_page_config(page_title="06 SOPR Terminal", layout="wide")
+st.set_page_config(page_title="06 SOPR High-Fidelity", layout="wide")
 
 st.markdown("""
 <style>
@@ -17,51 +17,67 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=120)
-def fetch_sopr_distinct_engine():
+def fetch_sopr_vwrp_engine():
     try:
-        # Download BTC Data
+        # 1. Download BTC Price and Volume
         df = yf.download("BTC-USD", period="max", interval="1d", progress=False)
         if df.empty: return pd.DataFrame()
 
-        # Extração de Preço
-        price = df['Close']['BTC-USD'] if isinstance(df.columns, pd.MultiIndex) else df['Close']
-        data = pd.DataFrame({'price': price})
+        # Extração Robusta (MultiIndex Support)
+        if isinstance(df.columns, pd.MultiIndex):
+            price = df['Close']['BTC-USD']
+            volume = df['Volume']['BTC-USD']
+        else:
+            price = df['Close']
+            volume = df['Volume']
+            
+        data = pd.DataFrame({'price': price, 'volume': volume})
+        data.index = pd.to_datetime(data.index).tz_localize(None)
+
+        # --- MOTOR VWRP (Volume-Weighted Realized Price) ---
+        # Calculamos o preço médio ponderado pelo volume (Janela de 90 dias)
+        # Aproximação fiel ao SOPR On-Chain: Preço Atual / Preço Médio de Aquisição
+        window = 90
+        data['pv'] = data['price'] * data['volume']
+        data['vwrp'] = data['pv'].rolling(window=window).sum() / data['volume'].rolling(window=window).sum()
         
-        # --- DIFERENCIAÇÃO TÉCNICA (SOPR vs MVRV) ---
-        # MVRV usa 365 dias (Macro Valuation)
-        # SOPR agora usa 90 dias (Sentiment/Profit Taking Cycle)
-        data['realized_short'] = data['price'].rolling(window=90).mean()
-        data['sopr_raw'] = data['price'] / data['realized_short']
+        # SOPR = Preço de Venda (Atual) / Preço de Custo (VWRP)
+        data['sopr_raw'] = data['price'] / data['vwrp']
         
-        # 1. Compressão Logarítmica
-        data['log_sopr'] = np.log(data['sopr_raw'])
+        # 1. Compressão Logarítmica para Estabilidade
+        data['log_sopr'] = np.log(data['sopr_raw'].replace(0, np.nan)).ffill()
         
-        # 2. Motor Z-Score Reativo
-        window = 350
-        data['mean'] = data['log_sopr'].rolling(window=window).mean()
-        data['std'] = data['log_sopr'].rolling(window=window).std()
+        # 2. Motor Z-Score (Janela Institucional 350 dias para normalizar o sinal)
+        z_window = 350
+        data['mean'] = data['log_sopr'].rolling(window=z_window).mean()
+        data['std'] = data['log_sopr'].rolling(window=z_window).std()
         
-        # 3. Inversão de Paridade: DOR = Aqua (Cima) | EUFORIA = Blue (Baixo)
+        # 3. Inversão de Paridade: DOR = Aqua (Cima) | PRAZER = Blue (Baixo)
+        # Fórmula: $$Z = \frac{\mu - x}{\sigma}$$
         data['z'] = ((data['mean'] - data['log_sopr']) / data['std']).clip(-3.5, 3.5)
         
         return data.dropna()
     except Exception as e:
-        st.error(f"Engine Alert: {str(e)}")
+        st.error(f"SOPR Engine Error: {str(e)}")
         return pd.DataFrame()
 
-data = fetch_sopr_distinct_engine()
+data = fetch_sopr_vwrp_engine()
 
 if not data.empty:
     last_z = data['z'].iloc[-1]
     
-    st.markdown("<h1 style='text-align: center; color: #3D5AFE;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓢𝓹𝓮𝓷𝓽 𝓞𝓾𝓽𝓹𝓾𝓽 𝓟𝓻𝓸𝓯𝓲𝓽 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #3D5AFE;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓢𝓽𝓪𝓫𝓵𝓮𝓬𝓸𝓲𝓷 𝓢𝓾𝓹𝓹𝓵𝔂 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
 
-    # Matriz de Sentimento (Focada em Realização de Lucro)
+    # Matriz de Sentimento (Baseada em Realização de Lucro/Prejuízo)
     status, s_color = "NEUTRAL", "#FFFFFF"
     if last_z >= 2.0:
-        status, s_color = "💎 CAPITULATION (LOSS TAKING)", "#00FBFF"
+        status, s_color = "💎 EXTREME CAPITULATION (LOSS TAKING)", "#00FBFF"
+    elif 1.0 <= last_z < 2.0:
+        status, s_color = "🔹 FEAR / PAIN", "rgba(0, 251, 255, 0.7)"
     elif last_z <= -2.0:
-        status, s_color = "🔴 EUPHORIA (PROFIT TAKING)", "#3D5AFE"
+        status, s_color = "🔴 EXTREME EUPHORIA (PROFIT TAKING)", "#3D5AFE"
+    elif -2.0 < last_z <= -1.0:
+        status, s_color = "🔸 HIGH OPTIMISM", "rgba(61, 90, 254, 0.7)"
 
     c1, c2, c3 = st.columns([1, 1, 1.8])
     c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")

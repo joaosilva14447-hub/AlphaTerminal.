@@ -83,7 +83,7 @@ if not data.empty:
         status, s_color = "🔸 SLIGHT OVERBOUGHT", "rgba(61, 90, 254, 0.5)"
     
     else:
-        status, s_color = "NEUTRAL / ACCUMULATION", "#FFFFFF"
+        status, s_color = "NEUTRAL", "#FFFFFF"
 
     c1, c2, c3 = st.columns([1, 1, 1.8])
     c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")

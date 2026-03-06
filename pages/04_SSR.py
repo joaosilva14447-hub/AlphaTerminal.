@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Configuração Master do Terminal
-st.set_page_config(page_title="04 SSR Ultimate History", layout="wide")
+st.set_page_config(page_title="04 SSR Terminal (2017+)", layout="wide")
 
 st.markdown("""
 <style>
@@ -17,58 +17,64 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=120)
-def fetch_ssr_ultimate_engine():
+def fetch_ssr_2017_engine():
     try:
-        # 1. Download Independente para maximizar o histórico de cada um
-        btc = yf.download("BTC-USD", period="max", interval="1d", progress=False)
-        usdt = yf.download("USDT-USD", period="max", interval="1d", progress=False)
+        # 1. Download de dados BTC e USDT
+        tickers = ["BTC-USD", "USDT-USD"]
+        df = yf.download(tickers, period="max", interval="1d", progress=False)
         
-        if btc.empty: return pd.DataFrame()
+        if df.empty: return pd.DataFrame()
 
-        # Extração Robusta (Lida com Single ou MultiIndex)
-        def get_col(df, name):
-            if isinstance(df.columns, pd.MultiIndex):
-                return df[name].iloc[:, 0]
-            return df[name]
+        # Tratamento MultiIndex
+        if isinstance(df.columns, pd.MultiIndex):
+            price_btc = df['Close']['BTC-USD']
+            vol_usdt = df['Volume']['USDT-USD']
+        else:
+            price_btc = df['Close']
+            vol_usdt = df['Volume']
 
-        price_btc = get_col(btc, 'Close')
-        vol_usdt = get_col(usdt, 'Volume') if not usdt.empty else pd.Series()
-
-        # 2. Fusão de Dados (Outer Join para manter o histórico de 2014 do BTC)
-        data = pd.DataFrame({'price': price_btc})
-        data = data.join(pd.DataFrame({'usdt_vol': vol_usdt}), how='left')
+        # Criar Dataset alinhado
+        data = pd.DataFrame({'price': price_btc, 'usdt_vol': vol_usdt})
         
-        # --- MOTOR DE CÁLCULO SSR (Ativação Pós-2017) ---
-        # Substituímos zeros e calculamos o rácio onde existe volume
-        data['usdt_vol'] = data['usdt_vol'].replace(0, np.nan)
-        data['ssr_raw'] = data['price'] / data['usdt_vol'].rolling(window=7).mean()
+        # --- FILTRO TEMPORAL 2017 ---
+        # Iniciamos em 2017-01-01 para garantir foco no ciclo solicitado
+        data = data[data.index >= '2017-01-01'].copy()
         
-        # 3. Transformação Logarítmica e Z-Score (Adaptativo)
+        # Substituir zeros no volume para evitar erros de divisão
+        data['usdt_vol'] = data['usdt_vol'].replace(0, np.nan).ffill()
+        
+        # 2. CÁLCULO SSR (Reativo)
+        # SSR = Preço BTC / Volume USDT (Média de 7 dias para fluidez)
+        data['ssr_raw'] = data['price'] / data['usdt_vol'].rolling(window=7, min_periods=1).mean()
         data['log_ssr'] = np.log(data['ssr_raw'])
         
-        window = 350
-        # min_periods=30 permite que o sinal apareça logo em 2017
-        data['mean'] = data['log_ssr'].rolling(window=window, min_periods=30).mean()
-        data['std'] = data['log_ssr'].rolling(window=window, min_periods=30).std()
+        # --- MOTOR Z-SCORE EXPANSIVO (Sinal Imediato) ---
+        # Usamosexpanding() para que o sinal comece logo após 14 dias de dados
+        window_limit = 350
+        data['mean'] = data['log_ssr'].expanding(min_periods=14).mean()
+        data['std'] = data['log_ssr'].expanding(min_periods=14).std()
         
-        # Inversão para paridade visual: Buying Power = Topo (Aqua)
+        # Após atingir 350 dias, estabiliza na janela institucional fixa
+        data.loc[data.index[window_limit:], 'mean'] = data['log_ssr'].rolling(window=window_limit).mean()
+        data.loc[data.index[window_limit:], 'std'] = data['log_ssr'].rolling(window=window_limit).std()
+        
+        # 3. Inversão de Paridade: (Média - Atual) 
+        # Buying Power = Aqua (Cima) | Sell Pressure = Blue (Baixo)
         data['z'] = ((data['mean'] - data['log_ssr']) / data['std']).clip(-3.5, 3.5)
         
-        return data # Não usamos dropna() aqui para manter o histórico de preço antigo
+        return data.dropna(subset=['z'])
     except Exception as e:
         st.error(f"Engine Alert: {str(e)}")
         return pd.DataFrame()
 
-data = fetch_ssr_ultimate_engine()
+data = fetch_ssr_2017_engine()
 
 if not data.empty:
-    # Captura o último valor não nulo para as métricas
-    last_valid_idx = data['z'].last_valid_index()
-    last_z = data.loc[last_valid_idx, 'z'] if last_valid_idx else 0
+    last_z = data['z'].iloc[-1]
     
     st.markdown("<h1 style='text-align: center; color: #00FBFF;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓢𝓽𝓪𝓫𝓵𝓮𝓬𝓸𝓲𝓷 𝓢𝓾𝓹𝓹𝓵𝔂 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
 
-    # Matriz de Sentimento
+    # Matriz de Sentimento Granular
     status, s_color = "NEUTRAL", "#FFFFFF"
     if last_z >= 2.0: status, s_color = "💎 HIGH BUYING POWER", "#00FBFF"
     elif last_z <= -2.0: status, s_color = "🔴 LOW BUYING POWER", "#3D5AFE"
@@ -81,14 +87,13 @@ if not data.empty:
     # Plot Multipainel
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.65, 0.35])
     
-    # Subplot 1: Preço do BTC (Desde 2014)
+    # Subplot 1: Preço (Log Scale)
     fig.add_trace(go.Scatter(x=data.index, y=data['price'], name="BTC", line=dict(color='white', width=2)), row=1, col=1)
     
-    # Subplot 2: SSR Z-Score (Desde 2017)
-    # Plotly ignora automaticamente os valores nulos (NaN) de 2014-2017
-    fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='#888', width=1.5), connectgaps=False), row=2, col=1)
+    # Subplot 2: SSR Z-Score (Reativo 2017+)
+    fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='#888', width=1.5)), row=2, col=1)
 
-    # Escala de 3 SDs
+    # Linhas de Escala 3 SD
     for val, color, dash in [(-3, "#3D5AFE", "dot"), (-2, "#3D5AFE", "dash"), 
                              (3, "#00FBFF", "dot"), (2, "#00FBFF", "dash"), 
                              (0, "rgba(255,255,255,0.1)", "solid")]:
@@ -102,13 +107,6 @@ if not data.empty:
 
     fig.update_layout(template="plotly_dark", paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F", height=1000, margin=dict(l=60, r=60, t=50, b=60), showlegend=False)
     fig.update_yaxes(type="log", row=1, col=1, showgrid=False)
-    
-    fig.update_yaxes(
-        row=2, col=1, 
-        showgrid=False, 
-        autorange='reversed', 
-        range=[-3.3, 3.3], 
-        tickvals=[-3, -2, -1, 0, 1, 2, 3]
-    )
+    fig.update_yaxes(row=2, col=1, showgrid=False, autorange='reversed', range=[-3.3, 3.3], tickvals=[-3, -2, -1, 0, 1, 2, 3])
     
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})

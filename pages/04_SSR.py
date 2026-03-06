@@ -19,86 +19,80 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=3600)
-def fetch_ssr_bulletproof():
+def fetch_ssr_ultimate_safe():
     try:
-        # --- 1. DOWNLOAD BTC ---
-        btc_raw = yf.download("BTC-USD", period="max", interval="1d", progress=False)
-        if btc_raw.empty:
-            return None, "Yahoo Finance falhou ao carregar BTC-USD."
+        # 1. Download BTC (A âncora do tempo)
+        btc_df = yf.download("BTC-USD", period="max", interval="1d", progress=False)
+        if btc_df.empty:
+            return None, "Erro: Yahoo Finance não forneceu dados do BTC."
+        
+        # Lida com o formato de colunas do yfinance (MultiIndex ou não)
+        if isinstance(btc_df.columns, pd.MultiIndex):
+            price = btc_df['Close']['BTC-USD']
+        else:
+            price = btc_df['Close']
             
-        # Extração de Preço (Lida com MultiIndex ou SingleIndex)
-        price_btc = btc_raw['Close']['BTC-USD'] if isinstance(btc_raw.columns, pd.MultiIndex) else btc_raw['Close']
-        btc = pd.DataFrame({'price': price_btc})
-        btc['mcap'] = btc['price'] * 19700000 
-        btc.index = pd.to_datetime(btc.index).tz_localize(None)
+        data = pd.DataFrame({'price': price})
+        data.index = pd.to_datetime(data.index).tz_localize(None)
+        data['mcap'] = data['price'] * 19700000 # Estimativa de Circulating Supply
 
-        # --- 2. DOWNLOAD STABLECOINS (DEFILLAMA) ---
-        stables_df = pd.DataFrame()
+        # 2. Tentar API On-Chain (DefiLlama)
         try:
             url = "https://stablecoins.llama.fi/stablecoincharts/all"
-            response = requests.get(url, timeout=15)
-            if response.status_code == 200:
-                raw_stables = response.json()
-                stable_list = [{'date': datetime.fromtimestamp(int(e['date'])).strftime('%Y-%m-%d'), 'stable_mcap': e['totalCirculatingUSD']} for e in raw_stables]
-                stables_df = pd.DataFrame(stable_list)
-                stables_df['date'] = pd.to_datetime(stables_df['date'])
-                stables_df.set_index('date', inplace=True)
-        except:
-            pass # Falha silenciosa para ativar o backup abaixo
+            res = requests.get(url, timeout=15)
+            if res.status_code == 200:
+                raw = res.json()
+                stables = pd.DataFrame([{'date': datetime.fromtimestamp(int(e['date'])), 'stable_mcap': e['totalCirculatingUSD']} for e in raw])
+                stables.set_index('date', inplace=True)
+                stables.index = pd.to_datetime(stables.index).tz_localize(None)
+                data = data.join(stables, how='inner')
+            else:
+                raise Exception("API DefiLlama Off")
+        except Exception as e:
+            # BACKUP: Se a API falhar, usamos o volume de USDT do Yahoo como proxy de liquidez
+            st.warning("⚠️ Ligação On-Chain instável. Ativando Proxy de Liquidez Secundário...")
+            usdt = yf.download("USDT-USD", period="max", interval="1d", progress=False)
+            usdt_vol = usdt['Volume']['USDT-USD'] if isinstance(usdt.columns, pd.MultiIndex) else usdt['Volume']
+            usdt_vol = pd.DataFrame({'stable_mcap': usdt_vol.rolling(window=30).mean() * 10})
+            usdt_vol.index = pd.to_datetime(usdt_vol.index).tz_localize(None)
+            data = data.join(usdt_vol, how='inner')
 
-        # --- 3. BACKUP MODE (Se DefiLlama falhar) ---
-        if stables_df.empty:
-            st.warning("⚠️ API On-Chain lenta. Ativando Backup via Volume de Liquidez...")
-            usdt_raw = yf.download("USDT-USD", period="max", interval="1d", progress=False)
-            vol_usdt = usdt_raw['Volume']['USDT-USD'] if isinstance(usdt_raw.columns, pd.MultiIndex) else usdt_raw['Volume']
-            stables_df = pd.DataFrame({'stable_mcap': vol_usdt.rolling(window=30).mean() * 10}) # Proxy de Capitalização
-            stables_df.index = pd.to_datetime(stables_df.index).tz_localize(None)
-
-        # --- 4. JOIN E CÁLCULO ---
-        data = btc.join(stables_df, how='inner')
-        data = data[data.index >= '2017-08-01'].copy()
-        
-        if data.empty:
-            return None, "Erro de sincronização de datas entre BTC e Stables."
-
+        # 3. Cálculo do Sinal (SSR)
         data['ssr_raw'] = data['mcap'] / data['stable_mcap']
         data['log_ssr'] = np.log(data['ssr_raw'])
         
-        # Motor Z-Score
         window = 350
         data['mean'] = data['log_ssr'].rolling(window=window, min_periods=30).mean()
-        data['std'] = data['log_ssr'].rolling(window=window).std()
+        data['std'] = data['log_ssr'].rolling(window=window, min_periods=30).std()
         
-        # Inversão: Z+ (Aqua) = OVERSOLD
+        # Inversão: Buying Power = Aqua (Cima)
         data['z'] = ((data['mean'] - data['log_ssr']) / data['std']).clip(-3.5, 3.5)
         
         return data.dropna(subset=['z']), None
     except Exception as e:
-        return None, f"Erro Crítico no Motor: {str(e)}"
+        return None, str(e)
 
-# Execução do Motor
-data, error_msg = fetch_ssr_bulletproof()
+# Execução do Processamento
+data, err = fetch_ssr_ultimate_safe()
 
-if error_msg:
-    st.error(error_msg)
-    st.info("Dica: Verifica se o teu firewall está a bloquear pedidos a APIs externas.")
+if err:
+    st.error(f"⚠️ Erro de Carregamento: {err}")
+    st.info("O ecrã ficou preto porque o motor de dados não conseguiu sincronizar o BTC com as Stablecoins. Tenta atualizar a página.")
 elif data is not None:
     last_z = data['z'].iloc[-1]
     
-    st.markdown("<h1 style='text-align: center; color: #3D5AFE;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓢𝓽𝓪𝓫𝓵𝓮𝓬𝓸𝓲𝓷 𝓢𝓾𝓹𝓹𝓵𝔂 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #3D5AFE;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓡𝓮𝓪𝓵 𝓢𝓽𝓪𝓫𝓵𝓮𝓬𝓸𝓲𝓷 𝓢𝓾𝓹𝓹𝓵𝔂 𝓡𝓪𝓽𝓲𝓸 ✦</h1>", unsafe_allow_html=True)
 
-    # Matriz de Sentimento Granular
+    # Sentimento Granular
     status, s_color = "NEUTRAL", "#FFFFFF"
     if last_z >= 2.0: status, s_color = "💎 EXTREME OVERSOLD (HIGH BUYING POWER)", "#00FBFF"
-    elif 1.51 <= last_z < 2.0: status, s_color = "🔹 OVERSOLD (BUYING PRESSURE)", "rgba(0, 251, 255, 0.8)"
-    elif 1.0 <= last_z <= 1.50: status, s_color = "🔹 SLIGHT OVERSOLD", "rgba(0, 251, 255, 0.5)"
+    elif 1.0 <= last_z < 2.0: status, s_color = "🔹 OVERSOLD", "rgba(0, 251, 255, 0.7)"
     elif last_z <= -2.0: status, s_color = "🔴 EXTREME OVERBOUGHT (LOW BUYING POWER)", "#3D5AFE"
-    elif -1.99 <= last_z <= -1.51: status, s_color = "🔸 OVERBOUGHT (SELL PRESSURE)", "rgba(61, 90, 254, 0.8)"
-    elif -1.50 <= last_z <= -1.0: status, s_color = "🔸 SLIGHT OVERBOUGHT", "rgba(61, 90, 254, 0.5)"
+    elif -2.0 < last_z <= -1.0: status, s_color = "🔸 OVERBOUGHT", "rgba(61, 90, 254, 0.7)"
 
     c1, c2, c3 = st.columns([1, 1, 1.8])
     c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
-    c2.metric("ON-CHAIN SSR Z", f"{last_z:.2f} SD")
+    c2.metric("SSR Z-SCORE", f"{last_z:.2f} SD")
     c3.markdown(f"<h1 style='text-align: right; color: {s_color}; font-size: 24px; margin-top: -5px;'>{status}</h1>", unsafe_allow_html=True)
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.65, 0.35])

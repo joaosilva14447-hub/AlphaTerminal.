@@ -5,106 +5,98 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# 1. Configuração Alpha
+# 1. Configuração de Autoridade
 st.set_page_config(page_title="Alpha Terminal | Puell Multiple", layout="wide")
 
-AQUA = "#00FBFF"
-BLUE = "#3D5AFE"
+AQUA, BLUE = "#00FBFF", "#3D5AFE"
 
 st.markdown(f"""
 <style>
     .main {{ background-color: #0F0F0F; }}
-    h1 {{ font-family: 'Inter', sans-serif; letter-spacing: -1px; }}
+    h1 {{ font-family: 'Inter', sans-serif; color: {BLUE}; text-align: center; }}
 </style>
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=3600)
-def fetch_puell_final_engine():
+def get_alpha_puell_data():
     try:
-        t = yf.Ticker("BTC-USD")
-        df = t.history(period="max")
-        if df.empty: return None
-
+        # Download limpo
+        raw = yf.download("BTC-USD", period="max", interval="1d", progress=False)
+        if raw.empty: return None
+        
+        # Eliminação de MultiIndex (Padrão 2026)
+        df = raw.copy()
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+            
+        # Extração de Preço Unitário
         data = pd.DataFrame(index=df.index)
         data['price'] = df['Close'].astype(float)
         
-        def get_reward(d):
-            if d < pd.Timestamp('2012-11-28'): return 50.0
-            if d < pd.Timestamp('2016-07-09'): return 25.0
-            if d < pd.Timestamp('2020-05-11'): return 12.5
-            if d < pd.Timestamp('2024-04-20'): return 6.25
+        # Lógica de Emissão (Protocolo Bitcoin)
+        def calc_reward(dt):
+            if dt < pd.Timestamp('2012-11-28'): return 50.0
+            if dt < pd.Timestamp('2016-07-09'): return 25.0
+            if dt < pd.Timestamp('2020-05-11'): return 12.5
+            if dt < pd.Timestamp('2024-04-20'): return 6.25
             return 3.125
             
-        data['issuance'] = [get_reward(d) * 144 for d in data.index]
-        data['revenue'] = data['issuance'] * data['price']
+        data['daily_issuance'] = [calc_reward(d) * 144 for d in data.index]
+        data['revenue_usd'] = data['daily_issuance'] * data['price']
         
-        data['ma365'] = data['revenue'].rolling(window=365, min_periods=100).mean()
-        data['puell'] = data['revenue'] / data['ma365']
+        # Cálculo do Puell Multiple (Média 365 dias)
+        # Usamos min_periods=1 para não apagar dados recentes se houver falhas no histórico
+        data['ma_365'] = data['revenue_usd'].rolling(window=365, min_periods=180).mean()
+        data['puell'] = data['revenue_usd'] / data['ma_365']
         
-        data['log_p'] = np.log(data['puell'].replace(0, np.nan)).ffill()
-        data['z_mean'] = data['log_p'].rolling(window=350, min_periods=100).mean()
-        data['z_std'] = data['log_p'].rolling(window=350, min_periods=100).std()
+        # Normalização Z-Score (350 dias)
+        data['log_puell'] = np.log(data['puell'].replace(0, np.nan))
+        data['z_mean'] = data['log_puell'].rolling(window=350, min_periods=100).mean()
+        data['z_std'] = data['log_puell'].rolling(window=350, min_periods=100).std()
         
-        # Z-Score (Invertido: Capitulação no Topo)
-        data['z'] = ((data['z_mean'] - data['log_p']) / data['z_std']).clip(-3.5, 3.5)
+        # Z-Score Final (Invertido: Alta Capitulação = Topo do Gráfico)
+        data['z'] = ((data['z_mean'] - data['log_puell']) / data['z_std']).clip(-3.5, 3.5)
         
         return data.dropna(subset=['price', 'z'])
     except:
         return None
 
-# --- UI EXECUTION ---
-data = fetch_puell_final_engine()
+# --- EXECUÇÃO ---
+data = get_alpha_puell_data()
 
 if data is not None:
     last_z = data['z'].iloc[-1]
     
-    # Matriz de Decisão Dinâmica (Cores Fixas para o Sinal)
-    if last_z >= 2.0:
-        status, s_color = "💎 CAPITULATION (BUY)", AQUA
-    elif 1.0 <= last_z < 2.0:
-        status, s_color = "🔹 REVENUE STRESS", "#99f9ff"
-    elif last_z <= -2.0:
-        status, s_color = "🔴 EUPHORIA (SELL)", BLUE
-    elif -2.0 < last_z <= -1.0:
-        status, s_color = "🔸 REVENUE EXPANSION", "#7c8efc"
-    else:
-        status, s_color = "⚡ NEUTRAL", "#FFFFFF"
-
-    st.markdown(f"<h1 style='text-align: center; color: {BLUE};'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻𝓮 ✦</h1>", unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns([1, 1, 2])
-    c1.metric("BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
-    c2.metric("PUELL Z-SCORE", f"{last_z:.2f} SD")
+    # Dashboard Metrics
+    st.markdown(f"<h1>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻𝓮 ✦</h1>", unsafe_allow_html=True)
     
-    # Injeção de HTML Limpa (Sem erro de renderização)
-    c3.markdown(f"""
-        <div style="text-align: right; padding-top: 15px;">
-            <span style="color: {s_color}; font-size: 28px; font-weight: bold; text-shadow: 0px 0px 10px {s_color}44;">
-                {status}
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
+    col2.metric("Z-SCORE", f"{last_z:.2f} SD")
+    
+    status = "NEUTRAL"
+    s_color = "white"
+    if last_z >= 2.0: status, s_color = "💎 CAPITULATION (BUY)", AQUA
+    elif last_z <= -2.0: status, s_color = "🔴 EUPHORIA (SELL)", BLUE
+    col3.subheader(f":{s_color}[{status}]")
 
-    # Gráfico Alpha
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.6, 0.4])
-
+    # Plot
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
+    
+    # Preço (Log)
     fig.add_trace(go.Scatter(x=data.index, y=data['price'], name="Price", line=dict(color='white', width=2)), row=1, col=1)
+    
+    # Z-Score
     fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='white', width=1.5)), row=2, col=1)
-
-    # Zonas de Shading Profissionais (hrect)
-    # Capitulação (BUY - Aqua)
-    fig.add_hrect(y0=2.0, y1=3.5, fillcolor=AQUA, opacity=0.15, line_width=0, row=2, col=1)
-    fig.add_hline(y=2.0, line=dict(color=AQUA, width=1, dash="dash"), row=2, col=1)
-
-    # Euforia (SELL - Blue)
-    fig.add_hrect(y0=-3.5, y1=-2.0, fillcolor=BLUE, opacity=0.15, line_width=0, row=2, col=1)
-    fig.add_hline(y=-2.0, line=dict(color=BLUE, width=1, dash="dash"), row=2, col=1)
-
-    fig.update_layout(template="plotly_dark", height=850, margin=dict(l=50, r=50, t=30, b=50), showlegend=False, paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F")
-    fig.update_yaxes(type="log", row=1, col=1, showgrid=False)
-    fig.update_yaxes(row=2, col=1, autorange="reversed", range=[-3.5, 3.5], showgrid=False)
-
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-
+    
+    # Zonas de Stress (Fills)
+    fig.add_hline(y=2.0, line=dict(color=AQUA, dash="dash"), row=2, col=1)
+    fig.add_hline(y=-2.0, line=dict(color=BLUE, dash="dash"), row=2, col=1)
+    
+    fig.update_layout(template="plotly_dark", height=800, showlegend=False, paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F")
+    fig.update_yaxes(type="log", row=1, col=1)
+    fig.update_yaxes(autorange="reversed", row=2, col=1) # Inversão Alpha
+    
+    st.plotly_chart(fig, use_container_width=True)
 else:
-    st.error("Engine Synchronization Failed. Check Logs.")
+    st.error("Engine Timeout: Yahoo Finance data stream interrupted. Clear cache and retry.")

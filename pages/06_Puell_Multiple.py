@@ -1,39 +1,19 @@
-import streamlit as st
-import yfinance as yf
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-
-# High-Performance Terminal Config
-st.set_page_config(page_title="07 Puell Multiple Terminal", layout="wide")
-
-# Definição de Cores Institucionais
-AQUA = "#00FBFF"
-BLUE = "#3D5AFE"
-WHITE = "#FFFFFF"
-
-st.markdown("""
-<style>
-    .main { background-color: #0F0F0F; }
-    div[data-testid='stMetric'] { 
-        background-color: #161616; 
-        padding: 20px; 
-        border-radius: 5px; 
-        border: 1px solid #333; 
-    }
-    h1 { font-family: serif; }
-</style>
-""", unsafe_allow_html=True)
-
 @st.cache_data(ttl=3600)
 def fetch_puell_pro_clean_engine():
     try:
-        # 1. Download de Dados com tratamento MultiIndex
+        # 1. Download de Dados com "Squeeze" para evitar erros de MultiIndex
         df = yf.download("BTC-USD", period="max", interval="1d", progress=False)
         if df.empty: return pd.DataFrame()
         
-        price = df['Close']['BTC-USD'] if isinstance(df.columns, pd.MultiIndex) else df['Close']
+        # Garante que pegamos apenas o 'Close' independentemente do nível de índice
+        if 'Close' in df.columns:
+            price = df['Close']
+            # Se for DataFrame (MultiIndex), extraímos a primeira coluna
+            if isinstance(price, pd.DataFrame):
+                price = price.iloc[:, 0]
+        else:
+            return pd.DataFrame()
+
         data = pd.DataFrame({'price': price})
         data.index = pd.to_datetime(data.index).tz_localize(None)
 
@@ -43,15 +23,14 @@ def fetch_puell_pro_clean_engine():
             elif d < pd.Timestamp('2016-07-09'): return 25.0
             elif d < pd.Timestamp('2020-05-11'): return 12.5
             elif d < pd.Timestamp('2024-04-20'): return 6.25
-            else: return 3.125 # Recompensa atual em 2026
+            else: return 3.125 
             
         data['reward'] = [get_reward(d) for d in data.index]
         data['issuance_usd'] = data['reward'] * 144 * data['price']
         
-        # 3. DIFERENCIAÇÃO: Ajuste por Volatilidade de 30 dias
-        # Filtra o "ruído" do preço simples para focar no stress dos mineradores
+        # 3. Ajuste por Volatilidade de 30 dias
         vol = data['price'].pct_change().rolling(window=30).std()
-        data['adj_issuance'] = data['issuance_usd'] / (1 + vol)
+        data['adj_issuance'] = data['issuance_usd'] / (1 + vol.fillna(0))
         
         # 4. Cálculo do Rácio (Puell) e Normalização Macro (350d)
         data['ma_issuance'] = data['adj_issuance'].rolling(window=365).mean()
@@ -62,19 +41,13 @@ def fetch_puell_pro_clean_engine():
         data['mean'] = data['log_p'].rolling(window=window).mean()
         data['std'] = data['log_p'].rolling(window=window).std()
         
-        # Inversão Alpha: Z+ (Aqua/Cima) = Capitulação | Z- (Blue/Baixo) = Euforia
+        # Inversão Alpha: Z+ (Aqua) = Capitulação | Z- (Blue) = Euforia
         data['z'] = ((data['mean'] - data['log_p']) / data['std']).clip(-3.5, 3.5)
         
         return data.dropna()
-    except:
+    except Exception as e:
+        st.error(f"Engine Error: {e}")
         return pd.DataFrame()
-
-data = fetch_puell_pro_clean_engine()
-
-if not data.empty:
-    last_z = data['z'].iloc[-1]
-    
-    st.markdown(f"<h1 style='text-align: center; color: {BLUE};'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻𝓮 ✦</h1>", unsafe_allow_html=True)
 
     # Matriz de Sentimento Sólida
     status, s_color = "NEUTRAL", WHITE

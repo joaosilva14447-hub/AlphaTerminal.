@@ -5,6 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+
 # High-Performance Terminal Config
 st.set_page_config(page_title="07 Puell Multiple Terminal", layout="wide")
 

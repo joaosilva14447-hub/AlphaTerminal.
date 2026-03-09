@@ -1,49 +1,51 @@
 @st.cache_data(ttl=3600)
 def fetch_puell_pro_clean_engine():
     try:
-        # 1. Download de Dados com tratamento MultiIndex Robusto
-        df = yf.download("BTC-USD", period="max", interval="1d", progress=False)
-        if df.empty: return pd.DataFrame()
+        # 1. Método Alternativo de Download (Mais estável em 2026)
+        ticker = yf.Ticker("BTC-USD")
+        df = ticker.history(period="max")
         
-        # Correção Crítica: Achatamos o MultiIndex para garantir que 'Close' é encontrado
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-            
-        price = df['Close']
-        data = pd.DataFrame({'price': price})
-        data.index = pd.to_datetime(data.index).tz_localize(None)
+        if df.empty: 
+            return pd.DataFrame()
 
-        # 2. Lógica de Recompensa de Bloco (Halvings)
+        # 2. Extração Direta e Limpeza Total
+        # O .history() traz colunas simples, mas vamos garantir
+        data = pd.DataFrame()
+        data['price'] = df['Close']
+        data.index = pd.to_datetime(df.index).tz_localize(None)
+
+        # 3. Lógica de Recompensa (Protocolo Bitcoin)
         def get_reward(d):
             if d < pd.Timestamp('2012-11-28'): return 50.0
             elif d < pd.Timestamp('2016-07-09'): return 25.0
             elif d < pd.Timestamp('2020-05-11'): return 12.5
             elif d < pd.Timestamp('2024-04-20'): return 6.25
-            else: return 3.125 # Recompensa atual
+            else: return 3.125 
             
         data['reward'] = [get_reward(d) for d in data.index]
         data['issuance_usd'] = data['reward'] * 144 * data['price']
         
-        # 3. Diferenciação e Limpeza de Dados
-        vol = data['price'].pct_change().rolling(window=30).std()
-        data['adj_issuance'] = data['issuance_usd'] / (1 + vol.fillna(0))
+        # 4. Ajuste de Emissão e Cálculo do Puell
+        # Usamos 365 dias para a média móvel da emissão (Padrão Puell)
+        data['ma_issuance'] = data['issuance_usd'].rolling(window=365).mean()
+        data['puell_raw'] = data['issuance_usd'] / data['ma_issuance']
         
-        # 4. Cálculo do Rácio (Puell) e Normalização
-        data['ma_issuance'] = data['adj_issuance'].rolling(window=365).mean()
-        data['puell_raw'] = data['adj_issuance'] / data['ma_issuance']
-        
-        # Limpeza de zeros para evitar erros de Log
-        data['puell_raw'] = data['puell_raw'].replace(0, np.nan).ffill()
-        data['log_p'] = np.log(data['puell_raw'])
+        # 5. Normalização Z-Score (Janela 350 dias para capturar ciclos macro)
+        # Substituímos zeros e infs por NaN e limpamos
+        data['puell_raw'] = data['puell_raw'].replace([np.inf, -np.inf, 0], np.nan)
+        data['log_p'] = np.log(data['puell_raw']).ffill()
         
         window = 350
         data['mean'] = data['log_p'].rolling(window=window).mean()
         data['std'] = data['log_p'].rolling(window=window).std()
         
-        # Z-Score Alpha: Inversão para manter o padrão Visual
+        # Cálculo do Z: (Média - Atual) / Desvio
+        # Nota: Invertemos para o padrão Alpha (Capitulação no Topo do Gráfico)
         data['z'] = ((data['mean'] - data['log_p']) / data['std']).clip(-3.5, 3.5)
         
-        return data.dropna()
+        return data.dropna(subset=['z', 'price'])
+        
     except Exception as e:
-        st.error(f"Erro na Engine de Dados: {e}")
+        # Se falhar, o Streamlit vai mostrar o erro exato nos logs
+        print(f"CRITICAL ERROR: {e}")
         return pd.DataFrame()

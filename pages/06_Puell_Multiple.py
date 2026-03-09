@@ -1,59 +1,118 @@
-# --- Lógica de Sinais Alpha (Hedge Fund Standard) ---
-last_z = data['z'].iloc[-1]
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-# Matriz de Status Dinâmico
-if last_z >= 2.0:
-    status = "💎 MINER CAPITULATION (BUY)"
-    s_color = AQUA
-elif 1.0 <= last_z < 2.0:
-    status = "🔹 REVENUE STRESS"
-    s_color = "#99f9ff" # Aqua suavizado
-elif last_z <= -2.0:
-    status = "🔴 MINER EUPHORIA (SELL)"
-    s_color = BLUE
-elif -2.0 < last_z <= -1.0:
-    status = "🔸 REVENUE EXPANSION"
-    s_color = "#7c8efc" # Blue suavizado
-else:
-    status = "⚡ NEUTRAL"
-    s_color = "#FFFFFF"
+# 1. Configuração Alpha
+st.set_page_config(page_title="Alpha Terminal | Puell Multiple", layout="wide")
 
-# Dashboard de Métricas
-st.markdown(f"<h1>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻𝓮 ✦</h1>", unsafe_allow_html=True)
+AQUA = "#00FBFF"
+BLUE = "#3D5AFE"
 
-c1, c2, c3 = st.columns([1, 1, 1.8])
-c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
-c2.metric("PUELL Z-SCORE", f"{last_z:.2f} SD")
-
-# Injeção de Sinal com Cor Dinâmica em HTML Puro (Evita erros de renderização)
-c3.markdown(f"""
-    <div style="text-align: right; padding-top: 10px;">
-        <span style="color: {s_color}; font-size: 26px; font-weight: bold; font-family: 'Courier New', monospace; text-shadow: 0px 0px 10px {s_color}44;">
-            {status}
-        </span>
-    </div>
+st.markdown(f"""
+<style>
+    .main {{ background-color: #0F0F0F; }}
+    div[data-testid="stMetricValue"] {{ color: white; }}
+    h1 {{ font-family: 'Inter', sans-serif; letter-spacing: -1px; }}
+</style>
 """, unsafe_allow_html=True)
 
-# --- Construção do Gráfico Alpha ---
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.65, 0.35])
+@st.cache_data(ttl=3600)
+def fetch_puell_final_engine():
+    try:
+        # Download robusto via Ticker
+        t = yf.Ticker("BTC-USD")
+        df = t.history(period="max")
+        if df.empty: return None
 
-# Painel 1: Preço
-fig.add_trace(go.Scatter(x=data.index, y=data['price'], name="Price", line=dict(color='white', width=2)), row=1, col=1)
+        data = pd.DataFrame(index=df.index)
+        data['price'] = df['Close'].astype(float)
+        
+        # Protocolo de Emissão BTC
+        def get_reward(d):
+            if d < pd.Timestamp('2012-11-28'): return 50.0
+            if d < pd.Timestamp('2016-07-09'): return 25.0
+            if d < pd.Timestamp('2020-05-11'): return 12.5
+            if d < pd.Timestamp('2024-04-20'): return 6.25
+            return 3.125
+            
+        data['issuance'] = [get_reward(d) * 144 for d in data.index]
+        data['revenue'] = data['issuance'] * data['price']
+        
+        # Cálculos de Ciclo
+        data['ma365'] = data['revenue'].rolling(window=365, min_periods=100).mean()
+        data['puell'] = data['revenue'] / data['ma365']
+        
+        # Normalização Z-Score
+        data['log_p'] = np.log(data['puell'].replace(0, np.nan)).ffill()
+        data['z_mean'] = data['log_p'].rolling(window=350, min_periods=100).mean()
+        data['z_std'] = data['log_p'].rolling(window=350, min_periods=100).std()
+        
+        # Cálculo do Z (Invertido: Capitulação no Topo)
+        data['z'] = ((data['z_mean'] - data['log_p']) / data['z_std']).clip(-3.5, 3.5)
+        
+        return data.dropna(subset=['price', 'z'])
+    except:
+        return None
 
-# Painel 2: Oscilador Z-Score
-fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='white', width=1.5)), row=2, col=1)
+# --- UI EXECUTION ---
+data = fetch_puell_final_engine()
 
-# Linhas de Fronteira Institucionais
-for val, color, dash in [(-3, BLUE, "dot"), (-2, BLUE, "dash"), 
-                         (3, AQUA, "dot"), (2, AQUA, "dash"), (0, "rgba(255,255,255,0.1)", "solid")]:
-    fig.add_hline(y=val, line=dict(color=color, width=1.5, dash=dash), row=2, col=1)
+if data is not None:
+    last_z = data['z'].iloc[-1]
+    
+    # Matriz de Decisão Dinâmica
+    if last_z >= 2.0:
+        status, s_color = "💎 CAPITULATION (BUY)", AQUA
+    elif 1.0 <= last_z < 2.0:
+        status, s_color = "🔹 REVENUE STRESS", "#99f9ff"
+    elif last_z <= -2.0:
+        status, s_color = "🔴 EUPHORIA (SELL)", BLUE
+    elif -2.0 < last_z <= -1.0:
+        status, s_color = "🔸 REVENUE EXPANSION", "#7c8efc"
+    else:
+        status, s_color = "⚡ NEUTRAL", "#FFFFFF"
 
-# Preenchimento de Zonas Extremas (Shading)
-fig.add_trace(go.Scatter(x=data.index, y=np.where(data['z'] >= 2.0, data['z'], 2.0), fill='tonexty', fillcolor=f'rgba(0, 251, 255, 0.2)', line=dict(width=0), showlegend=False), row=2, col=1)
-fig.add_trace(go.Scatter(x=data.index, y=np.where(data['z'] <= -2.0, data['z'], -2.0), fill='tonexty', fillcolor=f'rgba(61, 90, 254, 0.2)', line=dict(width=0), showlegend=False), row=2, col=1)
+    st.markdown(f"<h1 style='text-align: center; color: {BLUE};'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻-𝓮 ✦</h1>", unsafe_allow_html=True)
 
-fig.update_layout(template="plotly_dark", paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F", height=900, margin=dict(l=60, r=60, t=50, b=60), showlegend=False)
-fig.update_yaxes(type="log", row=1, col=1, showgrid=False)
-fig.update_yaxes(row=2, col=1, showgrid=False, autorange='reversed', range=[-3.5, 3.5])
+    c1, c2, c3 = st.columns([1, 1, 2])
+    c1.metric("BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
+    c2.metric("PUELL Z", f"{last_z:.2f}")
+    
+    # Injeção Limpa de HTML (Sem erro de renderização)
+    c3.markdown(f"""
+        <div style="text-align: right; padding-top: 15px;">
+            <span style="color: {s_color}; font-size: 28px; font-weight: bold; text-shadow: 0px 0px 15px {s_color}66;">
+                {status}
+            </span>
+        </div>
+    """, unsafe_allow_html=True)
 
-st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+    # Gráfico de Alta Performance
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.6, 0.4])
+
+    # Painel 1: Preço Log
+    fig.add_trace(go.Scatter(x=data.index, y=data['price'], name="Price", line=dict(color='white', width=2)), row=1, col=1)
+
+    # Painel 2: Z-Score
+    fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='white', width=1.5)), row=2, col=1)
+
+    # Zonas de Shading Institucional (Invertido: Capitulação em Cima)
+    # Zona de Compra (Aqua) no topo da escala invertida
+    fig.add_hrect(y0=2.0, y1=3.5, fillcolor=AQUA, opacity=0.15, line_width=0, row=2, col=1)
+    fig.add_hline(y=2.0, line=dict(color=AQUA, width=1, dash="dash"), row=2, col=1)
+
+    # Zona de Venda (Blue) na base da escala invertida
+    fig.add_hrect(y0=-3.5, y1=-2.0, fillcolor=BLUE, opacity=0.15, line_width=0, row=2, col=1)
+    fig.add_hline(y=-2.0, line=dict(color=BLUE, width=1, dash="dash"), row=2, col=1)
+
+    fig.update_layout(template="plotly_dark", height=850, margin=dict(l=50, r=50, t=30, b=50), showlegend=False, paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F")
+    fig.update_yaxes(type="log", row=1, col=1, showgrid=False)
+    fig.update_yaxes(row=2, col=1, autorange="reversed", range=[-3.5, 3.5], showgrid=False)
+
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+else:
+    st.error("Data Synchronization Failed. Check your connection or clear Streamlit cache.")

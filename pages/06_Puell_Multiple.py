@@ -10,7 +10,7 @@ st.set_page_config(page_title="07 Puell Multiple Alpha", layout="wide")
 
 # Cores Institucionais
 AQUA = "#00FBFF"
-BLUE = "#3D5AFE"
+BLUE = "#3D5AFE" # Nosso Institutional Blue (Azul Escuro)
 WHITE = "#FFFFFF"
 
 st.markdown("""
@@ -24,12 +24,12 @@ st.markdown("""
 @st.cache_data(ttl=300)
 def fetch_puell_master_engine():
     try:
-        # Download Robusto
+        # Download Robusto via Ticker
         ticker = yf.Ticker("BTC-USD")
         df = ticker.history(period="max")
         if df.empty: return pd.DataFrame()
 
-        # Limpeza de Índices e Colunas (Garante compatibilidade total)
+        # Limpeza de Índices e Colunas
         data = pd.DataFrame(index=df.index)
         data['price'] = df['Close'].astype(float)
         data.index = pd.to_datetime(data.index).tz_localize(None)
@@ -40,7 +40,7 @@ def fetch_puell_master_engine():
             if d < pd.Timestamp('2016-07-09'): return 25.0
             if d < pd.Timestamp('2020-05-11'): return 12.5
             if d < pd.Timestamp('2024-04-20'): return 6.25
-            return 3.125 # Recompensa 2026
+            return 3.125
             
         data['issuance_coins'] = [get_reward(d) * 144 for d in data.index]
         data['issuance_usd'] = data['issuance_coins'] * data['price']
@@ -49,13 +49,13 @@ def fetch_puell_master_engine():
         data['ma_issuance'] = data['issuance_usd'].rolling(window=365, min_periods=100).mean()
         data['puell_raw'] = data['issuance_usd'] / data['ma_issuance']
         
-        # 4. Motor Z-Score (Janela 350) - Baseado na lógica SOPR
+        # 4. Motor Z-Score (Janela 350)
         data['log_p'] = np.log(data['puell_raw'].replace(0, np.nan)).ffill()
         z_window = 350
         data['mean'] = data['log_p'].rolling(window=z_window, min_periods=100).mean()
         data['std'] = data['log_p'].rolling(window=z_window, min_periods=100).std()
         
-        # Inversão: Z Positivo (Aqua) = Capitulação/Compra | Z Negativo (Blue) = Euforia/Venda
+        # Inversão: Z Positivo (Aqua) = Compra | Z Negativo (Blue) = Venda
         data['z'] = ((data['mean'] - data['log_p']) / data['std']).clip(-3.5, 3.5)
         
         return data.dropna(subset=['price', 'z'])
@@ -68,32 +68,37 @@ data = fetch_puell_master_engine()
 if not data.empty:
     last_z = data['z'].iloc[-1]
     
-    # --- MATRIZ DE SENTIMENTO E GLOW (Sincronizado com SOPR) ---
+    # --- MATRIZ DE SENTIMENTO E GLOW ---
     status, s_color, glow_css = "NEUTRAL", WHITE, ""
 
     if last_z >= 2.0:
         status, s_color = "💎 MINER CAPITULATION (BUY)", AQUA
-        glow_css = f"text-shadow: 0 0 10px {AQUA}, 0 0 20px {AQUA}, 0 0 30px #00FFFF;"
+        # Glow Aqua no sinal (Canto Direito)
+        glow_css = f"text-shadow: 0 0 10px {AQUA}, 0 0 20px {AQUA};"
     elif 1.0 <= last_z < 2.0:
         status, s_color = "🔹 MINER STRESS", "rgba(0, 251, 255, 0.7)"
     elif last_z <= -2.0:
         status, s_color = "🔴 MINER EUPHORIA (SELL)", BLUE
-        glow_css = f"text-shadow: 0 0 10px {BLUE}, 0 0 20px {BLUE}, 0 0 30px #3D5AFE;"
+        # Glow Blue no sinal (Canto Direito)
+        glow_css = f"text-shadow: 0 0 10px {BLUE}, 0 0 20px {BLUE};"
     elif -2.0 < last_z <= -1.0:
         status, s_color = "🔸 REVENUE EXPANSION", "rgba(61, 90, 254, 0.7)"
 
-    # Título Dinâmico Alpha
+    # --- AJUSTE SOLICITADO: Título Blindado com Azul Institucional ---
+    # A cor está fixada em BLUE, o glow css aplica o brilho da cor do sinal (Aqua ou Blue)
     st.markdown(f"""
-        <h1 style='text-align: center; color: {s_color if abs(last_z) >= 2 else BLUE}; 
+        <h1 style='text-align: center; color: {BLUE}; 
         {glow_css if abs(last_z) >= 2 else ""}; transition: 0.5s;'>
-            ✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻𝓮 ✦
+            ✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻-𝓮 ✦
         </h1>
     """, unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns([1, 1, 1.8])
     c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
     c2.metric("PUELL Z-SCORE", f"{last_z:.2f} SD")
-    c3.markdown(f"<h1 style='text-align: right; color: {s_color}; font-size: 24px; margin-top: -5px;'>{status}</h1>", unsafe_allow_html=True)
+    
+    # Sinal dinâmico (mantém as cores da matriz Aqua/Blue)
+    c3.markdown(f"<h1 style='text-align: right; color: {s_color}; {glow_css if abs(last_z) >= 2 else ""}; font-size: 24px; margin-top: -5px;'>{status}</h1>", unsafe_allow_html=True)
 
     # --- PLOT DESIGN (SOPR ARCHITECTURE) ---
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.65, 0.35])
@@ -109,7 +114,7 @@ if not data.empty:
                              (3, AQUA, "dot"), (2, AQUA, "dash"), (0, "rgba(255,255,255,0.1)", "solid")]:
         fig.add_hline(y=val, line=dict(color=color, width=1.5, dash=dash), row=2, col=1)
 
-    # --- FILLS DINÂMICOS (Correção de Lógica) ---
+    # --- FILLS DINÂMICOS ---
     # Euforia (Zona Blue/Venda)
     fig.add_trace(go.Scatter(x=data.index, y=[-2.0]*len(data), line=dict(width=0), showlegend=False, hoverinfo='skip'), row=2, col=1)
     fig.add_trace(go.Scatter(x=data.index, y=np.where(data['z'] <= -2.0, data['z'], -2.0), 
@@ -120,7 +125,7 @@ if not data.empty:
     fig.add_trace(go.Scatter(x=data.index, y=np.where(data['z'] >= 2.0, data['z'], 2.0), 
                              fill='tonexty', fillcolor='rgba(0, 251, 255, 0.4)', line=dict(width=0), showlegend=False), row=2, col=1)
 
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F", height=900, 
+    fig.update_layout(template="plotly_dark", paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F", height=1000, 
                       margin=dict(l=60, r=60, t=50, b=60), showlegend=False)
     
     fig.update_yaxes(type="log", row=1, col=1, showgrid=False)

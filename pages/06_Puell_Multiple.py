@@ -1,19 +1,15 @@
 @st.cache_data(ttl=3600)
 def fetch_puell_pro_clean_engine():
     try:
-        # 1. Download de Dados com "Squeeze" para evitar erros de MultiIndex
+        # 1. Download de Dados com tratamento MultiIndex Robusto
         df = yf.download("BTC-USD", period="max", interval="1d", progress=False)
         if df.empty: return pd.DataFrame()
         
-        # Garante que pegamos apenas o 'Close' independentemente do nível de índice
-        if 'Close' in df.columns:
-            price = df['Close']
-            # Se for DataFrame (MultiIndex), extraímos a primeira coluna
-            if isinstance(price, pd.DataFrame):
-                price = price.iloc[:, 0]
-        else:
-            return pd.DataFrame()
-
+        # Correção Crítica: Achatamos o MultiIndex para garantir que 'Close' é encontrado
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+            
+        price = df['Close']
         data = pd.DataFrame({'price': price})
         data.index = pd.to_datetime(data.index).tz_localize(None)
 
@@ -23,77 +19,31 @@ def fetch_puell_pro_clean_engine():
             elif d < pd.Timestamp('2016-07-09'): return 25.0
             elif d < pd.Timestamp('2020-05-11'): return 12.5
             elif d < pd.Timestamp('2024-04-20'): return 6.25
-            else: return 3.125 
+            else: return 3.125 # Recompensa atual
             
         data['reward'] = [get_reward(d) for d in data.index]
         data['issuance_usd'] = data['reward'] * 144 * data['price']
         
-        # 3. Ajuste por Volatilidade de 30 dias
+        # 3. Diferenciação e Limpeza de Dados
         vol = data['price'].pct_change().rolling(window=30).std()
         data['adj_issuance'] = data['issuance_usd'] / (1 + vol.fillna(0))
         
-        # 4. Cálculo do Rácio (Puell) e Normalização Macro (350d)
+        # 4. Cálculo do Rácio (Puell) e Normalização
         data['ma_issuance'] = data['adj_issuance'].rolling(window=365).mean()
         data['puell_raw'] = data['adj_issuance'] / data['ma_issuance']
         
-        data['log_p'] = np.log(data['puell_raw'].replace(0, np.nan)).ffill()
+        # Limpeza de zeros para evitar erros de Log
+        data['puell_raw'] = data['puell_raw'].replace(0, np.nan).ffill()
+        data['log_p'] = np.log(data['puell_raw'])
+        
         window = 350
         data['mean'] = data['log_p'].rolling(window=window).mean()
         data['std'] = data['log_p'].rolling(window=window).std()
         
-        # Inversão Alpha: Z+ (Aqua) = Capitulação | Z- (Blue) = Euforia
+        # Z-Score Alpha: Inversão para manter o padrão Visual
         data['z'] = ((data['mean'] - data['log_p']) / data['std']).clip(-3.5, 3.5)
         
         return data.dropna()
     except Exception as e:
-        st.error(f"Engine Error: {e}")
+        st.error(f"Erro na Engine de Dados: {e}")
         return pd.DataFrame()
-
-    # Matriz de Sentimento Sólida
-    status, s_color = "NEUTRAL", WHITE
-    if last_z >= 2.0: status, s_color = "💎 MINER CAPITULATION (BUY)", AQUA
-    elif 1.0 <= last_z < 2.0: status, s_color = "🔹 MINER REVENUE STRESS", "rgba(0, 251, 255, 0.7)"
-    elif last_z <= -2.0: status, s_color = "🔴 MINER EUPHORIA (SELL)", BLUE
-    elif -2.0 < last_z <= -1.0: status, s_color = "🔸 HIGH REVENUE EXPANSION", "rgba(61, 90, 254, 0.7)"
-
-    c1, c2, c3 = st.columns([1, 1, 1.8])
-    c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
-    c2.metric("PUELL Z-SCORE", f"{last_z:.2f} SD")
-    c3.markdown(f"<h1 style='text-align: right; color: {s_color}; font-size: 24px; margin-top: -5px;'>{status}</h1>", unsafe_allow_html=True)
-
-    # Construção do Plot
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.65, 0.35])
-    
-    # Painel 1: Preço em Escala Logarítmica
-    fig.add_trace(go.Scatter(x=data.index, y=data['price'], name="Price", line=dict(color='white', width=2)), row=1, col=1)
-    
-    # Painel 2: Oscilador Z-Score
-    fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='white', width=1.5)), row=2, col=1)
-
-    # Linhas de Fronteira Institucionais
-    for val, color, dash in [(-3, BLUE, "dot"), (-2, BLUE, "dash"), 
-                             (3, AQUA, "dot"), (2, AQUA, "dash"), (0, "rgba(255,255,255,0.1)", "solid")]:
-        fig.add_hline(y=val, line=dict(color=color, width=1.5, dash=dash), row=2, col=1)
-
-    # Preenchimentos Sólidos (Fills)
-    # Zona de Euforia (Blue)
-    fig.add_trace(go.Scatter(x=data.index, y=[-2.0]*len(data), line=dict(width=0), showlegend=False), row=2, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=np.where(data['z'] <= -2.0, data['z'], -2.0), fill='tonexty', fillcolor='rgba(61, 90, 254, 0.4)', line=dict(width=0), showlegend=False), row=2, col=1)
-    
-    # Zona de Capitulação (Aqua)
-    fig.add_trace(go.Scatter(x=data.index, y=[2.0]*len(data), line=dict(width=0), showlegend=False), row=2, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=np.where(data['z'] >= 2.0, data['z'], 2.0), fill='tonexty', fillcolor='rgba(0, 251, 255, 0.4)', line=dict(width=0), showlegend=False), row=2, col=1)
-
-    fig.update_layout(template="plotly_dark", paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F", height=1000, margin=dict(l=60, r=60, t=50, b=60), showlegend=False)
-    fig.update_yaxes(type="log", row=1, col=1, showgrid=False)
-    
-    # Escala Invertida: Capitulação em Cima, Euforia em Baixo
-    fig.update_yaxes(
-        row=2, col=1, 
-        showgrid=False, 
-        autorange='reversed', 
-        range=[-3.3, 3.3], 
-        tickvals=[-3, -2, -1, 0, 1, 2, 3]
-    )
-    
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})

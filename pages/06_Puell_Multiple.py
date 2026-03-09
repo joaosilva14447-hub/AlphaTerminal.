@@ -14,7 +14,6 @@ BLUE = "#3D5AFE"
 st.markdown(f"""
 <style>
     .main {{ background-color: #0F0F0F; }}
-    div[data-testid="stMetricValue"] {{ color: white; }}
     h1 {{ font-family: 'Inter', sans-serif; letter-spacing: -1px; }}
 </style>
 """, unsafe_allow_html=True)
@@ -22,7 +21,6 @@ st.markdown(f"""
 @st.cache_data(ttl=3600)
 def fetch_puell_final_engine():
     try:
-        # Download robusto via Ticker
         t = yf.Ticker("BTC-USD")
         df = t.history(period="max")
         if df.empty: return None
@@ -30,7 +28,6 @@ def fetch_puell_final_engine():
         data = pd.DataFrame(index=df.index)
         data['price'] = df['Close'].astype(float)
         
-        # Protocolo de Emissão BTC
         def get_reward(d):
             if d < pd.Timestamp('2012-11-28'): return 50.0
             if d < pd.Timestamp('2016-07-09'): return 25.0
@@ -41,16 +38,14 @@ def fetch_puell_final_engine():
         data['issuance'] = [get_reward(d) * 144 for d in data.index]
         data['revenue'] = data['issuance'] * data['price']
         
-        # Cálculos de Ciclo
         data['ma365'] = data['revenue'].rolling(window=365, min_periods=100).mean()
         data['puell'] = data['revenue'] / data['ma365']
         
-        # Normalização Z-Score
         data['log_p'] = np.log(data['puell'].replace(0, np.nan)).ffill()
         data['z_mean'] = data['log_p'].rolling(window=350, min_periods=100).mean()
         data['z_std'] = data['log_p'].rolling(window=350, min_periods=100).std()
         
-        # Cálculo do Z (Invertido: Capitulação no Topo)
+        # Z-Score (Invertido: Capitulação no Topo)
         data['z'] = ((data['z_mean'] - data['log_p']) / data['z_std']).clip(-3.5, 3.5)
         
         return data.dropna(subset=['price', 'z'])
@@ -63,7 +58,7 @@ data = fetch_puell_final_engine()
 if data is not None:
     last_z = data['z'].iloc[-1]
     
-    # Matriz de Decisão Dinâmica
+    # Matriz de Decisão Dinâmica (Cores Fixas para o Sinal)
     if last_z >= 2.0:
         status, s_color = "💎 CAPITULATION (BUY)", AQUA
     elif 1.0 <= last_z < 2.0:
@@ -75,36 +70,33 @@ if data is not None:
     else:
         status, s_color = "⚡ NEUTRAL", "#FFFFFF"
 
-    st.markdown(f"<h1 style='text-align: center; color: {BLUE};'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻-𝓮 ✦</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; color: {BLUE};'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻𝓮 ✦</h1>", unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns([1, 1, 2])
     c1.metric("BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")
-    c2.metric("PUELL Z", f"{last_z:.2f}")
+    c2.metric("PUELL Z-SCORE", f"{last_z:.2f} SD")
     
-    # Injeção Limpa de HTML (Sem erro de renderização)
+    # Injeção de HTML Limpa (Sem erro de renderização)
     c3.markdown(f"""
         <div style="text-align: right; padding-top: 15px;">
-            <span style="color: {s_color}; font-size: 28px; font-weight: bold; text-shadow: 0px 0px 15px {s_color}66;">
+            <span style="color: {s_color}; font-size: 28px; font-weight: bold; text-shadow: 0px 0px 10px {s_color}44;">
                 {status}
             </span>
         </div>
     """, unsafe_allow_html=True)
 
-    # Gráfico de Alta Performance
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04, row_heights=[0.6, 0.4])
+    # Gráfico Alpha
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.6, 0.4])
 
-    # Painel 1: Preço Log
     fig.add_trace(go.Scatter(x=data.index, y=data['price'], name="Price", line=dict(color='white', width=2)), row=1, col=1)
-
-    # Painel 2: Z-Score
     fig.add_trace(go.Scatter(x=data.index, y=data['z'], name="Z-Score", line=dict(color='white', width=1.5)), row=2, col=1)
 
-    # Zonas de Shading Institucional (Invertido: Capitulação em Cima)
-    # Zona de Compra (Aqua) no topo da escala invertida
+    # Zonas de Shading Profissionais (hrect)
+    # Capitulação (BUY - Aqua)
     fig.add_hrect(y0=2.0, y1=3.5, fillcolor=AQUA, opacity=0.15, line_width=0, row=2, col=1)
     fig.add_hline(y=2.0, line=dict(color=AQUA, width=1, dash="dash"), row=2, col=1)
 
-    # Zona de Venda (Blue) na base da escala invertida
+    # Euforia (SELL - Blue)
     fig.add_hrect(y0=-3.5, y1=-2.0, fillcolor=BLUE, opacity=0.15, line_width=0, row=2, col=1)
     fig.add_hline(y=-2.0, line=dict(color=BLUE, width=1, dash="dash"), row=2, col=1)
 
@@ -115,4 +107,4 @@ if data is not None:
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 else:
-    st.error("Data Synchronization Failed. Check your connection or clear Streamlit cache.")
+    st.error("Engine Synchronization Failed. Check Logs.")

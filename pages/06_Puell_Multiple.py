@@ -83,7 +83,12 @@ if not data.empty:
         status, s_color = "🔸 REVENUE EXPANSION", "rgba(61, 90, 254, 0.7)"
 
     # Título Dinâmico Alpha
-       st.markdown("<h1 style='text-align: center; color: #3D5AFE;'>✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻𝓮 ✦</h1>", unsafe_allow_html=True)
+    st.markdown(f"""
+        <h1 style='text-align: center; color: {s_color if abs(last_z) >= 2 else BLUE}; 
+        {glow_css if abs(last_z) >= 2 else ""}; transition: 0.5s;'>
+            ✦ 𝓑𝓲𝓽𝓬𝓸𝓲𝓷: 𝓟𝓾𝓮𝓵𝓵 𝓜𝓾𝓵𝓽𝓲𝓹𝓵𝓮 𝓩-𝓢𝓬𝓸𝓻𝓮 ✦
+        </h1>
+    """, unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns([1, 1, 1.8])
     c1.metric("LIVE BTC PRICE", f"${data['price'].iloc[-1]:,.2f}")

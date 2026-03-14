@@ -47,11 +47,30 @@ if data.empty:
     st.stop()
 
 data["log_price"] = np.log(data["price"])
-window = 350
-data["mean"] = data["log_price"].rolling(window=window).mean()
-data["std"] = data["log_price"].rolling(window=window).std()
-data["z"] = (data["log_price"] - data["mean"]) / data["std"]
-data["z"] = data["z"].clip(-3.5, 3.5)
+short_window = 350
+long_window = 1400
+
+data["mean_s"] = data["log_price"].rolling(window=short_window).mean()
+data["std_s"] = data["log_price"].rolling(window=short_window).std()
+data["mean_l"] = data["log_price"].rolling(window=long_window).mean()
+data["std_l"] = data["log_price"].rolling(window=long_window).std()
+
+data["z_s"] = (data["log_price"] - data["mean_s"]) / data["std_s"]
+data["z_l"] = (data["log_price"] - data["mean_l"]) / data["std_l"]
+
+# Blend short + long to stabilize cycle regime
+data["z_raw"] = 0.7 * data["z_s"] + 0.3 * data["z_l"]
+
+# Soft-squash: preserve shape until +/-3, then smoothly cap at +/-3.5
+limit = 3.5
+knee = 3.0
+abs_z = data["z_raw"].abs()
+data["z"] = np.where(
+    abs_z <= knee,
+    data["z_raw"],
+    np.sign(data["z_raw"]) * (knee + (limit - knee) * np.tanh((abs_z - knee) / (limit - knee))),
+)
+
 data = data.dropna()
 
 last = data.iloc[-1]

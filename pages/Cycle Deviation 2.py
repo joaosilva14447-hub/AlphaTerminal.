@@ -87,7 +87,7 @@ fig.add_trace(
     col=1,
 )
 fig.add_trace(
-    go.Scatter(x=data.index, y=data["z"], name="Z-Score", line=dict(color="#00FBFF", width=1.5)),
+    go.Scatter(x=data.index, y=data["z"], name="Z-Score", line=dict(color="#BFC9D6", width=1.6)),
     row=2,
     col=1,
 )

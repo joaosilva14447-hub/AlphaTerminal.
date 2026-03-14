@@ -55,18 +55,13 @@ data["returns"] = np.log(data["price"] / data["price"].shift(1))
 data["vol30"] = data["returns"].rolling(30).std() * np.sqrt(365) * 100
 data["vol365"] = data["returns"].rolling(365).std() * np.sqrt(365) * 100
 data["vol_ratio"] = data["vol30"] / data["vol365"]
-
-# Dynamic thresholds (rolling percentiles)
-lookback = 730
-data["thr_high"] = data["vol_ratio"].rolling(lookback).quantile(0.8)
-data["thr_low"] = data["vol_ratio"].rolling(lookback).quantile(0.2)
-
 data = data.dropna()
+
 last = data.iloc[-1]
 
-if last["vol_ratio"] >= last["thr_high"]:
+if last["vol_ratio"] >= 1.25:
     regime = "Expansion"
-elif last["vol_ratio"] <= last["thr_low"]:
+elif last["vol_ratio"] <= 0.8:
     regime = "Compression"
 else:
     regime = "Neutral"
@@ -99,26 +94,8 @@ fig.add_trace(
     row=2,
     col=1,
 )
-fig.add_trace(
-    go.Scatter(
-        x=data.index,
-        y=data["thr_high"],
-        name="High Threshold",
-        line=dict(color="#3D5AFE", width=1, dash="dash"),
-    ),
-    row=2,
-    col=1,
-)
-fig.add_trace(
-    go.Scatter(
-        x=data.index,
-        y=data["thr_low"],
-        name="Low Threshold",
-        line=dict(color="#3D5AFE", width=1, dash="dash"),
-    ),
-    row=2,
-    col=1,
-)
+fig.add_hline(y=1.25, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=0.8, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
 fig.add_hline(y=1.0, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
 
 fig.update_layout(

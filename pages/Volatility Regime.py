@@ -5,7 +5,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-st.set_page_config(page_title="Trend Regime", layout="wide")
+st.set_page_config(page_title="Volatility Regime", layout="wide")
 
 st.markdown(
     """
@@ -51,40 +51,37 @@ if data.empty:
     st.error("Data unavailable.")
     st.stop()
 
-data["ma50"] = data["price"].rolling(window=50).mean()
-data["ma200"] = data["price"].rolling(window=200).mean()
-data["slope200"] = data["ma200"].pct_change(30) * 100
-data["trend_gap"] = (data["price"] / data["ma200"] - 1) * 100
+data["returns"] = np.log(data["price"] / data["price"].shift(1))
+data["vol30"] = data["returns"].rolling(30).std() * np.sqrt(365) * 100
+data["vol365"] = data["returns"].rolling(365).std() * np.sqrt(365) * 100
+data["vol_ratio"] = data["vol30"] / data["vol365"]
 data = data.dropna()
 
 last = data.iloc[-1]
 
-if last["price"] > last["ma200"] and last["slope200"] > 0:
+if last["vol_ratio"] >= 1.25:
     regime = "Expansion"
-elif last["price"] < last["ma200"] and last["slope200"] < 0:
-    regime = "Contraction"
-elif last["price"] > last["ma200"] and last["slope200"] <= 0:
-    regime = "Late Cycle"
+elif last["vol_ratio"] <= 0.8:
+    regime = "Compression"
 else:
-    regime = "Early Cycle"
+    regime = "Neutral"
 
 st.markdown(
-    "<h1 style='text-align:center; color:#EAF2FF;'>Trend Regime Index</h1>",
+    "<h1 style='text-align:center; color:#EAF2FF;'>Volatility Regime Index</h1>",
     unsafe_allow_html=True,
 )
 
-c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+c1, c2, c3 = st.columns([1, 1, 1.2])
 c1.metric("BTC PRICE", f"${last['price']:,.2f}")
-c2.metric("MA 200", f"${last['ma200']:,.2f}")
-c3.metric("TREND GAP", f"{last['trend_gap']:.2f}%")
-c4.metric("REGIME", regime)
+c2.metric("REALIZED VOL (30d)", f"{last['vol30']:.2f}%")
+c3.metric("REGIME", regime)
 
 fig = make_subplots(
     rows=2,
     cols=1,
     shared_xaxes=True,
     vertical_spacing=0.06,
-    row_heights=[0.7, 0.3],
+    row_heights=[0.65, 0.35],
 )
 
 fig.add_trace(
@@ -93,22 +90,13 @@ fig.add_trace(
     col=1,
 )
 fig.add_trace(
-    go.Scatter(x=data.index, y=data["ma50"], name="MA 50", line=dict(color="#00FBFF", width=1.2)),
-    row=1,
-    col=1,
-)
-fig.add_trace(
-    go.Scatter(x=data.index, y=data["ma200"], name="MA 200", line=dict(color="#3D5AFE", width=1.2)),
-    row=1,
-    col=1,
-)
-
-fig.add_trace(
-    go.Scatter(x=data.index, y=data["slope200"], name="MA200 Slope", line=dict(color="#AAAAAA", width=1.2)),
+    go.Scatter(x=data.index, y=data["vol_ratio"], name="Vol Ratio", line=dict(color="#00FBFF", width=1.5)),
     row=2,
     col=1,
 )
-fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
+fig.add_hline(y=1.25, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=0.8, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=1.0, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
 
 fig.update_layout(
     template="plotly_dark",
@@ -120,6 +108,6 @@ fig.update_layout(
 )
 
 fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
-fig.update_yaxes(title="Slope (30d %)", row=2, col=1, showgrid=False)
+fig.update_yaxes(title="Vol Ratio", row=2, col=1, showgrid=False)
 
 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})

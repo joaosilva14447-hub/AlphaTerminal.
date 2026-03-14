@@ -51,14 +51,32 @@ if data.empty:
     st.error("Data unavailable.")
     st.stop()
 
+# Volatility regime core
 data["returns"] = np.log(data["price"] / data["price"].shift(1))
 data["vol30"] = data["returns"].rolling(30).std() * np.sqrt(365) * 100
 data["vol365"] = data["returns"].rolling(365).std() * np.sqrt(365) * 100
 data["vol_ratio"] = data["vol30"] / data["vol365"]
-data = data.dropna()
 
+# Trend context
+data["ma200"] = data["price"].rolling(200).mean()
+data["ma200_slope"] = data["ma200"].pct_change(30)
+
+# Spike detection
+data["vol_roc_5d"] = data["vol_ratio"].pct_change(5)
+data["spike_raw"] = (data["vol_ratio"] > 1.25) & (data["vol_roc_5d"] > 0.25)
+
+# Cooldown to avoid repeated spikes
+cooldown = 14
+data["spike_signal"] = data["spike_raw"] & (~data["spike_raw"].rolling(cooldown).max().shift(1).fillna(False))
+
+# Classify spike context
+data["spike_top"] = data["spike_signal"] & (data["price"] > data["ma200"]) & (data["ma200_slope"] > 0)
+data["spike_bottom"] = data["spike_signal"] & (data["price"] < data["ma200"]) & (data["ma200_slope"] < 0)
+
+data = data.dropna()
 last = data.iloc[-1]
 
+# Regime state
 if last["vol_ratio"] >= 1.25:
     regime = "Expansion"
 elif last["vol_ratio"] <= 0.8:
@@ -66,15 +84,26 @@ elif last["vol_ratio"] <= 0.8:
 else:
     regime = "Neutral"
 
+# Spike state
+if last["spike_top"]:
+    spike_state = "TOP SPIKE"
+elif last["spike_bottom"]:
+    spike_state = "BOTTOM SPIKE"
+elif last["spike_signal"]:
+    spike_state = "SPIKE"
+else:
+    spike_state = "None"
+
 st.markdown(
     "<h1 style='text-align:center; color:#EAF2FF;'>Volatility Regime Index</h1>",
     unsafe_allow_html=True,
 )
 
-c1, c2, c3 = st.columns([1, 1, 1.2])
+c1, c2, c3, c4 = st.columns([1, 1, 1, 1.1])
 c1.metric("BTC PRICE", f"${last['price']:,.2f}")
 c2.metric("REALIZED VOL (30d)", f"{last['vol30']:.2f}%")
 c3.metric("REGIME", regime)
+c4.metric("SPIKE", spike_state)
 
 fig = make_subplots(
     rows=2,
@@ -89,6 +118,7 @@ fig.add_trace(
     row=1,
     col=1,
 )
+
 fig.add_trace(
     go.Scatter(x=data.index, y=data["vol_ratio"], name="Vol Ratio", line=dict(color="#00FBFF", width=1.5)),
     row=2,

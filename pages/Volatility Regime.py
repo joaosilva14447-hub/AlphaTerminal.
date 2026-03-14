@@ -57,20 +57,17 @@ data["vol30"] = data["returns"].rolling(30).std() * np.sqrt(365) * 100
 data["vol365"] = data["returns"].rolling(365).std() * np.sqrt(365) * 100
 data["vol_ratio"] = data["vol30"] / data["vol365"]
 
-# Trend context
+# Trend context + spike logic (kept for metric)
 data["ma200"] = data["price"].rolling(200).mean()
 data["ma200_slope"] = data["ma200"].pct_change(30)
 
-# Spike detection
 data["vol_roc_5d"] = data["vol_ratio"].pct_change(5)
 data["spike_raw"] = (data["vol_ratio"] > 1.25) & (data["vol_roc_5d"] > 0.25)
 
-# Cooldown
 cooldown = 14
 recent_spike = data["spike_raw"].rolling(cooldown).max().shift(1).fillna(0).astype(bool)
 data["spike_signal"] = data["spike_raw"] & (~recent_spike)
 
-# Classify spike context
 data["spike_top"] = data["spike_signal"] & (data["price"] > data["ma200"]) & (data["ma200_slope"] > 0)
 data["spike_bottom"] = data["spike_signal"] & (data["price"] < data["ma200"]) & (data["ma200_slope"] < 0)
 
@@ -101,5 +98,67 @@ st.markdown(
 )
 
 c1, c2, c3, c4 = st.columns([1, 1, 1, 1.1])
-c1.metric("
+c1.metric("BTC PRICE", f"${last['price']:,.2f}")
+c2.metric("REALIZED VOL (30d)", f"{last['vol30']:.2f}%")
+c3.metric("REGIME", regime)
+c4.metric("SPIKE", spike_state)
+
+fig = make_subplots(
+    rows=2,
+    cols=1,
+    shared_xaxes=True,
+    vertical_spacing=0.06,
+    row_heights=[0.65, 0.35],
+)
+
+# Price line
+fig.add_trace(
+    go.Scatter(x=data.index, y=data["price"], name="Price", line=dict(color="white", width=2)),
+    row=1,
+    col=1,
+)
+
+# Vol ratio line
+fig.add_trace(
+    go.Scatter(x=data.index, y=data["vol_ratio"], name="Vol Ratio", line=dict(color="#00FBFF", width=1.5)),
+    row=2,
+    col=1,
+)
+
+# Fixed thresholds
+top_level = 1.25
+bottom_level = 0.8
+
+# Bands (Top/Bottom)
+y_max = float(max(data["vol_ratio"].max() * 1.1, top_level + 0.2))
+y_min = float(min(data["vol_ratio"].min() * 0.9, bottom_level - 0.2))
+
+fig.add_hrect(
+    y0=top_level, y1=y_max,
+    fillcolor="rgba(76, 167, 255, 0.10)", line_width=0, row=2, col=1
+)
+fig.add_hrect(
+    y0=y_min, y1=bottom_level,
+    fillcolor="rgba(53, 240, 208, 0.10)", line_width=0, row=2, col=1
+)
+
+# Threshold lines
+fig.add_hline(y=top_level, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=bottom_level, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=1.0, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
+
+fig.update_layout(
+    template="plotly_dark",
+    paper_bgcolor="#0F0F0F",
+    plot_bgcolor="#0F0F0F",
+    height=900,
+    margin=dict(l=60, r=60, t=40, b=40),
+    showlegend=False,
+)
+
+fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
+fig.update_yaxes(title="Vol Ratio", row=2, col=1, showgrid=False)
+
+st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
 

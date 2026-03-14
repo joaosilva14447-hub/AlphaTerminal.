@@ -55,7 +55,7 @@ data["ath"] = data["price"].cummax()
 data["drawdown"] = (data["price"] / data["ath"] - 1) * 100
 data["ath_date"] = data["price"].where(data["price"] == data["ath"]).index
 data["ath_date"] = data["ath_date"].ffill()
-data["days_since_ath"] = (data.index - data["ath_date"]).days
+data["days_since_ath"] = (data.index - data["ath_date"]).dt.days
 data = data.dropna()
 
 last = data.iloc[-1]

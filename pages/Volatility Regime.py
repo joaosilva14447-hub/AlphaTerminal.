@@ -23,6 +23,9 @@ st.markdown(
 )
 
 
+START_DATE = "2018-01-01"
+
+
 @st.cache_data(ttl=120)
 def fetch_btc_history():
     ticker = yf.Ticker("BTC-USD")
@@ -37,7 +40,9 @@ def fetch_btc_history():
         pass
     data = df[["Close"]].rename(columns={"Close": "price"})
     data.index = pd.to_datetime(data.index).tz_localize(None)
-    return data.dropna()
+    data = data.dropna()
+    data = data.loc[data.index >= START_DATE]
+    return data
 
 
 data = fetch_btc_history()
@@ -53,6 +58,7 @@ data["vol_ratio"] = data["vol30"] / data["vol365"]
 data = data.dropna()
 
 last = data.iloc[-1]
+
 if last["vol_ratio"] >= 1.25:
     regime = "Expansion"
 elif last["vol_ratio"] <= 0.8:
@@ -60,45 +66,37 @@ elif last["vol_ratio"] <= 0.8:
 else:
     regime = "Neutral"
 
-st.markdown("<h1 style='text-align:center; color:#EAF2FF;'>Volatility Regime Index</h1>", unsafe_allow_html=True)
+st.markdown(
+    "<h1 style='text-align:center; color:#EAF2FF;'>Volatility Regime Index</h1>",
+    unsafe_allow_html=True,
+)
+
 c1, c2, c3 = st.columns([1, 1, 1.2])
 c1.metric("BTC PRICE", f"${last['price']:,.2f}")
 c2.metric("REALIZED VOL (30d)", f"{last['vol30']:.2f}%")
 c3.metric("REGIME", regime)
 
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.06, row_heights=[0.65, 0.35])
+fig = make_subplots(
+    rows=2,
+    cols=1,
+    shared_xaxes=True,
+    vertical_spacing=0.06,
+    row_heights=[0.65, 0.35],
+)
 
-# Price
-fig.add_trace(go.Scatter(x=data.index, y=data["price"], name="Price", line=dict(color="white", width=2)), row=1, col=1)
-
-# Vol ratio line (stronger contrast)
-fig.add_trace(go.Scatter(x=data.index, y=data["vol_ratio"], name="Vol Ratio", line=dict(color="#59D9FF", width=1.8)), row=2, col=1)
-
-# Threshold lines
-fig.add_hline(y=1.25, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
-fig.add_hline(y=0.8, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
-fig.add_hline(y=1.0, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
-
-# Regime background bands
-y_min = float(min(data["vol_ratio"].min() * 0.9, 0.6))
-y_max = float(max(data["vol_ratio"].max() * 1.1, 1.6))
-fig.add_hrect(y0=1.25, y1=y_max, fillcolor="rgba(76, 167, 255, 0.08)", line_width=0, row=2, col=1)
-fig.add_hrect(y0=y_min, y1=0.8, fillcolor="rgba(53, 240, 208, 0.08)", line_width=0, row=2, col=1)
-
-# Latest value marker
 fig.add_trace(
-    go.Scatter(
-        x=[data.index[-1]],
-        y=[data["vol_ratio"].iloc[-1]],
-        mode="markers+text",
-        text=[f"{data['vol_ratio'].iloc[-1]:.2f}"],
-        textposition="top right",
-        marker=dict(size=9, color="#EAF2FF", line=dict(color="#0F0F0F", width=1)),
-        showlegend=False,
-    ),
+    go.Scatter(x=data.index, y=data["price"], name="Price", line=dict(color="white", width=2)),
+    row=1,
+    col=1,
+)
+fig.add_trace(
+    go.Scatter(x=data.index, y=data["vol_ratio"], name="Vol Ratio", line=dict(color="#00FBFF", width=1.5)),
     row=2,
     col=1,
 )
+fig.add_hline(y=1.25, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=0.8, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=1.0, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
 
 fig.update_layout(
     template="plotly_dark",
@@ -108,11 +106,6 @@ fig.update_layout(
     margin=dict(l=60, r=60, t=40, b=40),
     showlegend=False,
 )
-
-fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
-fig.update_yaxes(title="Vol Ratio", row=2, col=1, showgrid=False)
-
-st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
 fig.update_yaxes(title="Vol Ratio", row=2, col=1, showgrid=False)

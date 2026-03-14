@@ -125,9 +125,13 @@ fig.add_trace(
     row=2,
     col=1,
 )
-fig.add_hline(y=2, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
-fig.add_hline(y=-2, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
-fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
+fig.add_hline(y=3, line=dict(color="rgba(76, 167, 255, 0.55)", width=1, dash="dot"), row=2, col=1)
+fig.add_hline(y=2, line=dict(color="rgba(76, 167, 255, 0.45)", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=1, line=dict(color="rgba(76, 167, 255, 0.25)", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.08)", width=1), row=2, col=1)
+fig.add_hline(y=-1, line=dict(color="rgba(53, 240, 208, 0.25)", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=-2, line=dict(color="rgba(53, 240, 208, 0.45)", width=1, dash="dash"), row=2, col=1)
+fig.add_hline(y=-3, line=dict(color="rgba(53, 240, 208, 0.55)", width=1, dash="dot"), row=2, col=1)
 
 fig.update_layout(
     template="plotly_dark",
@@ -139,6 +143,6 @@ fig.update_layout(
 )
 
 fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
-fig.update_yaxes(title="Z-Score", row=2, col=1, showgrid=False)
+fig.update_yaxes(title="Z-Score", row=2, col=1, showgrid=False, range=[-3.5, 3.5], tickvals=[-3, -2, -1, 0, 1, 2, 3])
 
 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})

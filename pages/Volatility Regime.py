@@ -114,7 +114,7 @@ def filter_persistent(mask, min_len):
 top_mask = filter_persistent(top_mask, min_days_top)
 bottom_mask = filter_persistent(bottom_mask, min_days_bottom)
 
-def add_bands(mask, color, opacity=0.25):
+def add_bands(mask, color, opacity=0.26):
     in_band = False
     start = None
     for dt, flag in zip(data.index, mask):
@@ -135,9 +135,10 @@ def add_bands(mask, color, opacity=0.25):
             row="all", col=1
         )
 
-# Bands (more visible, still institutional)
-add_bands(top_mask, "rgba(76, 167, 255, 0.28)")
-add_bands(bottom_mask, "rgba(53, 240, 208, 0.24)")
+# Same color for top & bottom bands (institutional blue)
+band_color = "rgba(76, 167, 255, 0.28)"
+add_bands(top_mask, band_color)
+add_bands(bottom_mask, band_color)
 
 fig.update_layout(
     template="plotly_dark",
@@ -152,4 +153,3 @@ fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
 fig.update_yaxes(title="Vol Ratio", row=2, col=1, showgrid=False)
 
 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-

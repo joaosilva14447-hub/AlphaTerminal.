@@ -152,9 +152,9 @@ st.markdown(
 )
 
 c1, c2, c3 = st.columns([1, 1, 1])
-c1.metric("BTC PRICE", f"${last['price']:,.2f}")
-c2.metric("CDI Z-SCORE", f"{last['z']:.2f} SD")
-c3.metric("STATE", state)
+c1.metric("BTC PRICE", f"${last['price']:,.2f}", key="cdi_btc_price")
+c2.metric("CDI Z-SCORE", f"{last['z']:.2f} SD", key="cdi_z_score")
+c3.metric("STATE", state, key="cdi_state")
 
 fig = make_subplots(
     rows=2,
@@ -228,9 +228,4 @@ fig.update_layout(
 fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
 fig.update_yaxes(title="Z-Score", row=2, col=1, showgrid=False, range=[-3.5, 3.5], tickvals=[-3, -2, -1, 0, 1, 2, 3])
 
-st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
-fig.update_yaxes(title="Z-Score", row=2, col=1, showgrid=False, range=[-3.5, 3.5], tickvals=[-3, -2, -1, 0, 1, 2, 3])
-
-st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key="cdi_chart")

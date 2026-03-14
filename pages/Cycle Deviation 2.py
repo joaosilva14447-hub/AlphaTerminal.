@@ -170,3 +170,5 @@ fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
 fig.update_yaxes(title="Z-Score", row=2, col=1, showgrid=False, range=[-3.5, 3.5], tickvals=[-3, -2, -1, 0, 1, 2, 3])
 
 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key="cdi_chart")
+
+st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key="cdi_chart")

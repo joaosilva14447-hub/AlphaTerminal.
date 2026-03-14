@@ -22,9 +22,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 START_DATE = "2018-01-01"
-
 
 @st.cache_data(ttl=120)
 def fetch_btc_history():
@@ -44,7 +42,6 @@ def fetch_btc_history():
     data = data.loc[data.index >= START_DATE]
     return data
 
-
 data = fetch_btc_history()
 
 if data.empty:
@@ -60,6 +57,7 @@ data["vol_ratio"] = data["vol30"] / data["vol365"]
 data = data.dropna()
 last = data.iloc[-1]
 
+# Regime state (keep original)
 if last["vol_ratio"] >= 1.25:
     regime = "Expansion"
 elif last["vol_ratio"] <= 0.8:
@@ -99,14 +97,22 @@ fig.add_trace(
     col=1,
 )
 
-# --- Bands for extremes (vertical) ---
-top_level = 1.25
-bottom_level = 0.8
+# ===== BANDS LOGIC (EXTREME ONLY) =====
+top_level = 1.50
+bottom_level = 0.70
+min_days = 5  # require persistence
 
 top_mask = data["vol_ratio"] >= top_level
 bottom_mask = data["vol_ratio"] <= bottom_level
 
-def add_bands(mask, color, opacity=0.18):
+def filter_persistent(mask, min_len):
+    groups = (~mask).cumsum()
+    return mask & (mask.groupby(groups).transform("size") >= min_len)
+
+top_mask = filter_persistent(top_mask, min_days)
+bottom_mask = filter_persistent(bottom_mask, min_days)
+
+def add_bands(mask, color, opacity=0.25):
     in_band = False
     start = None
     for dt, flag in zip(data.index, mask):
@@ -127,9 +133,9 @@ def add_bands(mask, color, opacity=0.18):
             row="all", col=1
         )
 
-# Blue bands for potential tops / Aqua bands for potential bottoms
-add_bands(top_mask, "rgba(76, 167, 255, 0.25)")
-add_bands(bottom_mask, "rgba(53, 240, 208, 0.22)")
+# More visible, still institutional
+add_bands(top_mask, "rgba(76, 167, 255, 0.28)")
+add_bands(bottom_mask, "rgba(53, 240, 208, 0.24)")
 
 fig.update_layout(
     template="plotly_dark",

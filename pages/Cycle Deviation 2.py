@@ -2,10 +2,8 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from pathlib import Path
 
 st.set_page_config(page_title="Cycle Deviation", layout="wide")
 
@@ -25,70 +23,11 @@ st.markdown(
 )
 
 
-DATA_PATH = Path(__file__).resolve().parent / "data" / "btc_history.csv"
-BLOCKCHAIN_URL = "https://api.blockchain.info/charts/market-price?timespan=all&format=json"
-
-
-@st.cache_data(ttl=120)
-def load_local_history(csv_path: Path) -> pd.DataFrame:
-    if not csv_path.exists():
-        return pd.DataFrame()
-    df = pd.read_csv(csv_path)
-    if df.empty:
-        return pd.DataFrame()
-    date_col = next((c for c in df.columns if c.lower() in ("date", "time", "timestamp")), None)
-    price_col = next((c for c in df.columns if c.lower() in ("close", "price", "adj close", "adj_close")), None)
-    if not date_col or not price_col:
-        return pd.DataFrame()
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-    df = df.dropna(subset=[date_col, price_col]).sort_values(date_col)
-    df = df[[date_col, price_col]].rename(columns={date_col: "date", price_col: "price"})
-    df = df.set_index("date")
-    df.index = df.index.tz_localize(None)
-    return df
-
-
-@st.cache_data(ttl=3600)
-def fetch_blockchain_history() -> pd.DataFrame:
-    try:
-        resp = requests.get(BLOCKCHAIN_URL, timeout=20)
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception:
-        return pd.DataFrame()
-    values = payload.get("values", [])
-    if not values:
-        return pd.DataFrame()
-    df = pd.DataFrame(values)
-    if "x" not in df.columns or "y" not in df.columns:
-        return pd.DataFrame()
-    df["date"] = pd.to_datetime(df["x"], unit="s", errors="coerce")
-    df["price"] = pd.to_numeric(df["y"], errors="coerce")
-    df = df[["date", "price"]].dropna().sort_values("date")
-    df = df.set_index("date")
-    df.index = df.index.tz_localize(None)
-    return df
+START_DATE = "2018-01-01"
 
 
 @st.cache_data(ttl=120)
 def fetch_btc_history() -> pd.DataFrame:
-    local = load_local_history(DATA_PATH)
-    if not local.empty:
-        last_date = local.index.max()
-        if pd.notna(last_date):
-            age_days = (pd.Timestamp.utcnow().normalize() - last_date.normalize()).days
-            if age_days <= 1:
-                return local
-
-    chain = fetch_blockchain_history()
-    if not chain.empty:
-        try:
-            DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-            chain.to_csv(DATA_PATH)
-        except Exception:
-            pass
-        return chain
-
     ticker = yf.Ticker("BTC-USD")
     df = ticker.history(period="max", interval="1d")
     if df.empty:
@@ -105,9 +44,11 @@ def fetch_btc_history() -> pd.DataFrame:
 
 
 data = fetch_btc_history()
+if not data.empty:
+    data = data.loc[data.index >= START_DATE]
 
 if data.empty:
-    st.error("Data unavailable. Add a local CSV at /data/btc_history.csv or check the data source.")
+    st.error("Data unavailable for the selected period.")
     st.stop()
 
 data["log_price"] = np.log(data["price"])

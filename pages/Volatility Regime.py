@@ -99,7 +99,7 @@ fig.add_trace(
 
 # ===== BANDS LOGIC (EXTREME ONLY) =====
 top_level = 1.50
-bottom_level = 0.70
+bottom_level = 0.60
 
 min_days_top = 5
 min_days_bottom = 6

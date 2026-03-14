@@ -57,9 +57,9 @@ data = data.dropna()
 last = data.iloc[-1]
 
 if last["z"] >= 2:
-    state = "Euphoria"
+    state = "Overbought"
 elif last["z"] <= -2:
-    state = "Capitulation"
+    state = "Oversold"
 else:
     state = "Neutral"
 
@@ -88,6 +88,40 @@ fig.add_trace(
 )
 fig.add_trace(
     go.Scatter(x=data.index, y=data["z"], name="Z-Score", line=dict(color="#00FBFF", width=1.5)),
+    row=2,
+    col=1,
+)
+fig.add_trace(
+    go.Scatter(x=data.index, y=[2] * len(data), line=dict(width=0), showlegend=False),
+    row=2,
+    col=1,
+)
+fig.add_trace(
+    go.Scatter(
+        x=data.index,
+        y=np.where(data["z"] >= 2, data["z"], 2),
+        fill="tonexty",
+        fillcolor="rgba(76, 167, 255, 0.35)",
+        line=dict(width=0),
+        showlegend=False,
+    ),
+    row=2,
+    col=1,
+)
+fig.add_trace(
+    go.Scatter(x=data.index, y=[-2] * len(data), line=dict(width=0), showlegend=False),
+    row=2,
+    col=1,
+)
+fig.add_trace(
+    go.Scatter(
+        x=data.index,
+        y=np.where(data["z"] <= -2, data["z"], -2),
+        fill="tonexty",
+        fillcolor="rgba(53, 240, 208, 0.35)",
+        line=dict(width=0),
+        showlegend=False,
+    ),
     row=2,
     col=1,
 )

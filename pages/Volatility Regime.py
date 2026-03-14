@@ -57,24 +57,9 @@ data["vol30"] = data["returns"].rolling(30).std() * np.sqrt(365) * 100
 data["vol365"] = data["returns"].rolling(365).std() * np.sqrt(365) * 100
 data["vol_ratio"] = data["vol30"] / data["vol365"]
 
-# Trend context + spike logic (kept for metric)
-data["ma200"] = data["price"].rolling(200).mean()
-data["ma200_slope"] = data["ma200"].pct_change(30)
-
-data["vol_roc_5d"] = data["vol_ratio"].pct_change(5)
-data["spike_raw"] = (data["vol_ratio"] > 1.25) & (data["vol_roc_5d"] > 0.25)
-
-cooldown = 14
-recent_spike = data["spike_raw"].rolling(cooldown).max().shift(1).fillna(0).astype(bool)
-data["spike_signal"] = data["spike_raw"] & (~recent_spike)
-
-data["spike_top"] = data["spike_signal"] & (data["price"] > data["ma200"]) & (data["ma200_slope"] > 0)
-data["spike_bottom"] = data["spike_signal"] & (data["price"] < data["ma200"]) & (data["ma200_slope"] < 0)
-
 data = data.dropna()
 last = data.iloc[-1]
 
-# Regime state
 if last["vol_ratio"] >= 1.25:
     regime = "Expansion"
 elif last["vol_ratio"] <= 0.8:
@@ -82,26 +67,15 @@ elif last["vol_ratio"] <= 0.8:
 else:
     regime = "Neutral"
 
-# Spike state
-if last["spike_top"]:
-    spike_state = "TOP SPIKE"
-elif last["spike_bottom"]:
-    spike_state = "BOTTOM SPIKE"
-elif last["spike_signal"]:
-    spike_state = "SPIKE"
-else:
-    spike_state = "None"
-
 st.markdown(
     "<h1 style='text-align:center; color:#EAF2FF;'>Volatility Regime Index</h1>",
     unsafe_allow_html=True,
 )
 
-c1, c2, c3, c4 = st.columns([1, 1, 1, 1.1])
+c1, c2, c3 = st.columns([1, 1, 1.2])
 c1.metric("BTC PRICE", f"${last['price']:,.2f}")
 c2.metric("REALIZED VOL (30d)", f"{last['vol30']:.2f}%")
 c3.metric("REGIME", regime)
-c4.metric("SPIKE", spike_state)
 
 fig = make_subplots(
     rows=2,
@@ -125,27 +99,37 @@ fig.add_trace(
     col=1,
 )
 
-# Fixed thresholds
+# --- Bands for extremes (vertical) ---
 top_level = 1.25
 bottom_level = 0.8
 
-# Bands (Top/Bottom)
-y_max = float(max(data["vol_ratio"].max() * 1.1, top_level + 0.2))
-y_min = float(min(data["vol_ratio"].min() * 0.9, bottom_level - 0.2))
+top_mask = data["vol_ratio"] >= top_level
+bottom_mask = data["vol_ratio"] <= bottom_level
 
-fig.add_hrect(
-    y0=top_level, y1=y_max,
-    fillcolor="rgba(76, 167, 255, 0.10)", line_width=0, row=2, col=1
-)
-fig.add_hrect(
-    y0=y_min, y1=bottom_level,
-    fillcolor="rgba(53, 240, 208, 0.10)", line_width=0, row=2, col=1
-)
+def add_bands(mask, color, opacity=0.18):
+    in_band = False
+    start = None
+    for dt, flag in zip(data.index, mask):
+        if flag and not in_band:
+            start = dt
+            in_band = True
+        elif not flag and in_band:
+            fig.add_vrect(
+                x0=start, x1=dt,
+                fillcolor=color, opacity=opacity, line_width=0,
+                row="all", col=1
+            )
+            in_band = False
+    if in_band:
+        fig.add_vrect(
+            x0=start, x1=data.index[-1],
+            fillcolor=color, opacity=opacity, line_width=0,
+            row="all", col=1
+        )
 
-# Threshold lines
-fig.add_hline(y=top_level, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
-fig.add_hline(y=bottom_level, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
-fig.add_hline(y=1.0, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
+# Blue bands for potential tops / Aqua bands for potential bottoms
+add_bands(top_mask, "rgba(76, 167, 255, 0.25)")
+add_bands(bottom_mask, "rgba(53, 240, 208, 0.22)")
 
 fig.update_layout(
     template="plotly_dark",
@@ -160,5 +144,3 @@ fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
 fig.update_yaxes(title="Vol Ratio", row=2, col=1, showgrid=False)
 
 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-

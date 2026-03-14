@@ -99,8 +99,10 @@ fig.add_trace(
 
 # ===== BANDS LOGIC (EXTREME ONLY) =====
 top_level = 1.50
-bottom_level = 0.70
-min_days = 5  # require persistence
+bottom_level = 0.65
+
+min_days_top = 5
+min_days_bottom = 6
 
 top_mask = data["vol_ratio"] >= top_level
 bottom_mask = data["vol_ratio"] <= bottom_level
@@ -109,8 +111,8 @@ def filter_persistent(mask, min_len):
     groups = (~mask).cumsum()
     return mask & (mask.groupby(groups).transform("size") >= min_len)
 
-top_mask = filter_persistent(top_mask, min_days)
-bottom_mask = filter_persistent(bottom_mask, min_days)
+top_mask = filter_persistent(top_mask, min_days_top)
+bottom_mask = filter_persistent(bottom_mask, min_days_bottom)
 
 def add_bands(mask, color, opacity=0.25):
     in_band = False
@@ -133,7 +135,7 @@ def add_bands(mask, color, opacity=0.25):
             row="all", col=1
         )
 
-# More visible, still institutional
+# Bands (more visible, still institutional)
 add_bands(top_mask, "rgba(76, 167, 255, 0.28)")
 add_bands(bottom_mask, "rgba(53, 240, 208, 0.24)")
 

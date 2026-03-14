@@ -47,23 +47,16 @@ if data.empty:
     st.stop()
 
 data["log_price"] = np.log(data["price"])
-
 short_window = 350
 long_window = 1400
-mad_const = 1.4826  # makes MAD comparable to std for normal distributions
 
-def rolling_mad(series, window):
-    med = series.rolling(window).median()
-    mad = (series - med).abs().rolling(window).median()
-    return med, mad * mad_const
+data["mean_s"] = data["log_price"].rolling(window=short_window).mean()
+data["std_s"] = data["log_price"].rolling(window=short_window).std()
+data["mean_l"] = data["log_price"].rolling(window=long_window).mean()
+data["std_l"] = data["log_price"].rolling(window=long_window).std()
 
-# Short window
-data["med_s"], data["mad_s"] = rolling_mad(data["log_price"], short_window)
-# Long window
-data["med_l"], data["mad_l"] = rolling_mad(data["log_price"], long_window)
-
-data["z_s"] = (data["log_price"] - data["med_s"]) / data["mad_s"]
-data["z_l"] = (data["log_price"] - data["med_l"]) / data["mad_l"]
+data["z_s"] = (data["log_price"] - data["mean_s"]) / data["std_s"]
+data["z_l"] = (data["log_price"] - data["mean_l"]) / data["std_l"]
 
 # Blend short + long to stabilize cycle regime
 data["z_raw"] = 0.7 * data["z_s"] + 0.3 * data["z_l"]
@@ -172,4 +165,3 @@ fig.update_yaxes(title="BTC Price", type="log", row=1, col=1, showgrid=False)
 fig.update_yaxes(title="Z-Score", row=2, col=1, showgrid=False, range=[-3.5, 3.5], tickvals=[-3, -2, -1, 0, 1, 2, 3])
 
 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-

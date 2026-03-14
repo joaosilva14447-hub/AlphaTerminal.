@@ -67,7 +67,8 @@ data["spike_raw"] = (data["vol_ratio"] > 1.25) & (data["vol_roc_5d"] > 0.25)
 
 # Cooldown to avoid repeated spikes
 cooldown = 14
-data["spike_signal"] = data["spike_raw"] & (~data["spike_raw"].rolling(cooldown).max().shift(1).fillna(False))
+recent_spike = data["spike_raw"].rolling(cooldown).max().shift(1).fillna(0).astype(bool)
+data["spike_signal"] = data["spike_raw"] & (~recent_spike)
 
 # Classify spike context
 data["spike_top"] = data["spike_signal"] & (data["price"] > data["ma200"]) & (data["ma200_slope"] > 0)

@@ -65,7 +65,7 @@ data["ma200_slope"] = data["ma200"].pct_change(30)
 data["vol_roc_5d"] = data["vol_ratio"].pct_change(5)
 data["spike_raw"] = (data["vol_ratio"] > 1.25) & (data["vol_roc_5d"] > 0.25)
 
-# Cooldown to avoid repeated spikes
+# Cooldown
 cooldown = 14
 recent_spike = data["spike_raw"].rolling(cooldown).max().shift(1).fillna(0).astype(bool)
 data["spike_signal"] = data["spike_raw"] & (~recent_spike)
@@ -114,17 +114,51 @@ fig = make_subplots(
     row_heights=[0.65, 0.35],
 )
 
+# Price line
 fig.add_trace(
     go.Scatter(x=data.index, y=data["price"], name="Price", line=dict(color="white", width=2)),
     row=1,
     col=1,
 )
 
+# Top spike markers (red triangles)
+tops = data[data["spike_top"]]
+fig.add_trace(
+    go.Scatter(
+        x=tops.index,
+        y=tops["price"],
+        mode="markers",
+        marker=dict(symbol="triangle-down", size=10, color="#FF4D4D"),
+        name="Top Spike",
+        showlegend=False,
+    ),
+    row=1,
+    col=1,
+)
+
+# Bottom spike markers (green triangles)
+bots = data[data["spike_bottom"]]
+fig.add_trace(
+    go.Scatter(
+        x=bots.index,
+        y=bots["price"],
+        mode="markers",
+        marker=dict(symbol="triangle-up", size=10, color="#3DFFB3"),
+        name="Bottom Spike",
+        showlegend=False,
+    ),
+    row=1,
+    col=1,
+)
+
+# Vol ratio line
 fig.add_trace(
     go.Scatter(x=data.index, y=data["vol_ratio"], name="Vol Ratio", line=dict(color="#00FBFF", width=1.5)),
     row=2,
     col=1,
 )
+
+# Fixed thresholds
 fig.add_hline(y=1.25, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
 fig.add_hline(y=0.8, line=dict(color="#3D5AFE", width=1, dash="dash"), row=2, col=1)
 fig.add_hline(y=1.0, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)

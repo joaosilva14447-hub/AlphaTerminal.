@@ -54,10 +54,6 @@ data["vol30"] = data["returns"].rolling(30).std() * np.sqrt(365) * 100
 data["vol365"] = data["returns"].rolling(365).std() * np.sqrt(365) * 100
 data["vol_ratio"] = data["vol30"] / data["vol365"]
 
-# Trend context
-data["ma200"] = data["price"].rolling(200).mean()
-data["ma200_slope"] = data["ma200"].pct_change(30)
-
 data = data.dropna()
 last = data.iloc[-1]
 
@@ -101,17 +97,15 @@ fig.add_trace(
     col=1,
 )
 
-# ===== BANDS LOGIC (EXTREME + CONTEXT) =====
+# ===== BANDS LOGIC (EXTREME ONLY) =====
 top_level = 1.50
 bottom_level = 0.65
+
 min_days_top = 5
 min_days_bottom = 6
 
-trend_up = (data["price"] > data["ma200"]) & (data["ma200_slope"] > 0)
-trend_down = (data["price"] < data["ma200"]) & (data["ma200_slope"] < 0)
-
-top_mask = (data["vol_ratio"] >= top_level) & trend_up
-bottom_mask = (data["vol_ratio"] <= bottom_level) & trend_down
+top_mask = data["vol_ratio"] >= top_level
+bottom_mask = data["vol_ratio"] <= bottom_level
 
 def filter_persistent(mask, min_len):
     groups = (~mask).cumsum()
@@ -141,7 +135,7 @@ def add_bands(mask, color, opacity=0.25):
             row="all", col=1
         )
 
-# Bands (filtered by context)
+# Bands (more visible, still institutional)
 add_bands(top_mask, "rgba(76, 167, 255, 0.28)")
 add_bands(bottom_mask, "rgba(53, 240, 208, 0.24)")
 

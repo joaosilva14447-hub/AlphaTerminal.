@@ -21,6 +21,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 @st.cache_data(ttl=3600)  # Cache de 1 hora
 def get_fng_data(limit=365):
     try:
@@ -33,6 +34,7 @@ def get_fng_data(limit=365):
     except Exception:
         return None
 
+
 def state_from_value(value: int):
     # Official bands (Alternative.me): 0-24, 25-49, 50-54, 55-74, 75-100
     if value < 25:
@@ -44,6 +46,7 @@ def state_from_value(value: int):
     if value < 75:
         return "Greed", "#3CCB7F"
     return "Extreme Greed", "#00E676"
+
 
 df = get_fng_data(limit=365)
 
@@ -58,22 +61,13 @@ if df is not None:
     df_hist["state_label"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[0])
     df_hist["state_color"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[1])
 
-    selected_label = st.select_slider(
-        "VIEW DATE (select to update the gauge)",
-        options=df_hist["date_label"].tolist(),
-        value=df_hist["date_label"].iloc[-1],
-    )
-    selected_row = df_hist[df_hist["date_label"] == selected_label].iloc[-1]
-    selected_val = int(selected_row["value"])
-    selected_status = str(selected_row["value_classification"])
+    # Use the most recent value as the active signal (no manual date selector)
+    selected_row = df_hist.iloc[-1]
+    selected_label = selected_row["date_label"]
+    selected_val = current_val
+    selected_status = current_status
     selected_state_label, selected_state_color = state_from_value(selected_val)
-
-    selected_idx = df_hist.index.get_loc(selected_row.name)
-    if isinstance(selected_idx, slice):
-        selected_idx = selected_idx.start or 0
-    prev_idx = max(0, selected_idx - 1)
-    selected_prev = int(df_hist.iloc[prev_idx]["value"])
-    selected_delta = selected_val - selected_prev
+    selected_delta = current_delta
 
     st.title("Fear & Greed Index | Institutional Monitor")
 
@@ -92,6 +86,12 @@ if df is not None:
                     "axis": {"range": [0, 100], "tickcolor": "white"},
                     "bar": {"color": selected_state_color},
                     "bgcolor": "rgba(0,0,0,0)",
+                    # Pointer line to highlight the current zone
+                    "threshold": {
+                        "line": {"color": selected_state_color, "width": 5},
+                        "thickness": 0.75,
+                        "value": selected_val,
+                    },
                     "steps": [
                         {"range": [0, 25], "color": "rgba(255, 59, 48, 0.22)"},
                         {"range": [25, 50], "color": "rgba(255, 122, 69, 0.20)"},
@@ -125,13 +125,26 @@ if df is not None:
             use_container_width=True,
         )
 
+    # Historical chart
     st.markdown("---")
     st.markdown("### Sentiment Historical (Last Months)")
 
     fig_hist = go.Figure()
-    legend_added = set()
+    # Base line for continuity (prevents visible gaps between colored segments)
+    fig_hist.add_trace(
+        go.Scatter(
+            x=df_hist["timestamp"],
+            y=df_hist["value"],
+            mode="lines",
+            name="F&G (base)",
+            line=dict(color="rgba(199, 208, 219, 0.45)", width=1.2),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
 
-    # Draw per-interval colored segments (no cuts)
+    legend_added = set()
+    # Draw per-interval colored segments (prevents visible breaks between states)
     for i in range(1, len(df_hist)):
         label = df_hist["state_label"].iloc[i]
         color = df_hist["state_color"].iloc[i]

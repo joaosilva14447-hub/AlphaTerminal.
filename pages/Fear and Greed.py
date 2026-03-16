@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import plotly.graph_objects as go
 import pandas as pd
+import math
 
 # Configuracao Padrao AlphaTerminal
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
@@ -86,12 +87,6 @@ if df is not None:
                     "axis": {"range": [0, 100], "tickcolor": "white"},
                     "bar": {"color": selected_state_color},
                     "bgcolor": "rgba(0,0,0,0)",
-                    # Pointer line to highlight the current zone
-                    "threshold": {
-                        "line": {"color": selected_state_color, "width": 5},
-                        "thickness": 0.75,
-                        "value": selected_val,
-                    },
                     "steps": [
                         {"range": [0, 25], "color": "rgba(255, 59, 48, 0.22)"},
                         {"range": [25, 50], "color": "rgba(255, 122, 69, 0.20)"},
@@ -102,6 +97,30 @@ if df is not None:
                 },
             )
         )
+
+        # Arrow pointer for the current zone (paper coords)
+        angle_deg = 180 - (selected_val / 100) * 180
+        theta = math.radians(angle_deg)
+        cx, cy = 0.5, 0.42
+        r = 0.36
+        x = cx + r * math.cos(theta)
+        y = cy + r * math.sin(theta)
+        fig.add_annotation(
+            x=x,
+            y=y,
+            xref="paper",
+            yref="paper",
+            ax=cx,
+            ay=cy,
+            axref="paper",
+            ayref="paper",
+            showarrow=True,
+            arrowhead=3,
+            arrowsize=1.2,
+            arrowwidth=3,
+            arrowcolor=selected_state_color,
+        )
+
         fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=450)
         st.plotly_chart(fig, use_container_width=True)
 

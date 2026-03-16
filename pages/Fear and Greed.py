@@ -2,11 +2,12 @@ import streamlit as st
 import requests
 import plotly.graph_objects as go
 import pandas as pd
+import numpy as np
 
-# Configuração Padrão AlphaTerminal
+# Standard AlphaTerminal Configuration
 st.set_page_config(page_title="Fear & Greed Pro", layout="wide")
 
-@st.cache_data(ttl=3600)  # Cache de 1 hora
+@st.cache_data(ttl=3600)
 def get_fng_data(limit=365):
     try:
         r = requests.get(f"https://api.alternative.me/fng/?limit={limit}", timeout=5)
@@ -18,12 +19,20 @@ def get_fng_data(limit=365):
     except:
         return None
 
+# Helper to get color based on 5 phases
+def get_sentiment_color(val):
+    if val <= 25: return "#FF4B4B"          # Extreme Fear (AlphaRed)
+    if val <= 45: return "rgba(255, 75, 75, 0.6)" # Fear
+    if val <= 55: return "#FACC15"          # Neutral (Yellow/Gold)
+    if val <= 75: return "rgba(0, 229, 255, 0.6)" # Greed
+    return "#00E5FF"                        # Extreme Greed (Aqua)
+
 df = get_fng_data(limit=365)
 
 if df is not None:
-    # API vem em ordem descendente (mais recente primeiro)
     current_val = df.iloc[0]["value"]
     current_status = df.iloc[0]["value_classification"]
+    current_color = get_sentiment_color(current_val)
     prev_val = df.iloc[1]["value"] if len(df) > 1 else current_val
     delta = current_val - prev_val
 
@@ -32,19 +41,21 @@ if df is not None:
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        # Gauge Chart
-        color = "#00E5FF" if current_val > 45 else "#FF4B4B"
+        # 1. Gauge Chart with 5 Defined Steps
         fig = go.Figure(go.Indicator(
             mode="gauge+number",
             value=current_val,
-            title={"text": f"Current Sentiment: {current_status}", "font": {"color": color, "size": 24}},
+            title={"text": f"Current Sentiment: {current_status}", "font": {"color": current_color, "size": 24}},
             gauge={
-                "axis": {"range": [0, 100], "tickcolor": "white"},
-                "bar": {"color": color},
-                "bgcolor": "rgba(0,0,0,0)",
+                "axis": {"range": [0, 100], "tickcolor": "white", "tickwidth": 2},
+                "bar": {"color": "white", "thickness": 0.25},
+                "bgcolor": "rgba(255,255,255,0.05)",
                 "steps": [
-                    {"range": [0, 25], "color": "rgba(255, 75, 75, 0.2)"},
-                    {"range": [75, 100], "color": "rgba(0, 229, 255, 0.2)"},
+                    {"range": [0, 25], "color": "#FF4B4B"},
+                    {"range": [25, 45], "color": "rgba(255, 75, 75, 0.4)"},
+                    {"range": [45, 55], "color": "#FACC15"},
+                    {"range": [55, 75], "color": "rgba(0, 229, 255, 0.4)"},
+                    {"range": [75, 100], "color": "#00E5FF"},
                 ],
             },
         ))
@@ -54,86 +65,47 @@ if df is not None:
     with col2:
         st.markdown("### Sentiment Delta (24h)")
         st.metric(label="Change vs Yesterday", value=f"{current_val} pts", delta=delta)
-
         st.markdown("---")
         st.markdown("### Last 7 Days")
-
+        
         history_display = df[["timestamp", "value", "value_classification"]].head(7).copy()
         history_display.columns = ["Date", "Value", "Classification"]
+        st.dataframe(history_display, use_container_width=True, hide_index=True)
 
-        def highlight_fng(val):
-            if val > 70:
-                return "color: #00E5FF; font-weight: bold"
-            if val < 30:
-                return "color: #FF4B4B; font-weight: bold"
-            return "color: white"
-
-        st.dataframe(
-            history_display.style.applymap(highlight_fng, subset=["Value"]),
-            use_container_width=True
-        )
-
-    # Gráfico histórico (últimos meses)
+    # 2. Historical Chart with Multi-Color Sentiment Line
     st.markdown("---")
-    st.markdown("### Sentiment Histórico (Últimos Meses)")
-
+    st.markdown("### Historical Sentiment Spectrum")
+    
     df_hist = df.sort_values("timestamp")
-
+    
     fig_hist = go.Figure()
-    fig_hist.add_trace(go.Scatter(
-        x=df_hist["timestamp"],
-        y=df_hist["value"],
-        mode="lines",
-        name="F&G",
-        line=dict(color="#C7D0DB", width=2),
-    ))
 
-    # Marcar extremos
-    extreme_fear = df_hist[df_hist["value"] <= 20]
-    extreme_greed = df_hist[df_hist["value"] >= 80]
+    # Create segments to color the line dynamically
+    for i in range(len(df_hist) - 1):
+        x_seg = df_hist["timestamp"].iloc[i:i+2]
+        y_seg = df_hist["value"].iloc[i:i+2]
+        # Color based on the start of the segment
+        seg_color = get_sentiment_color(y_seg.iloc[0])
+        
+        fig_hist.add_trace(go.Scatter(
+            x=x_seg, y=y_seg, mode="lines",
+            line=dict(color=seg_color, width=2.5),
+            showlegend=False, hoverinfo='none'
+        ))
 
-    fig_hist.add_trace(go.Scatter(
-        x=extreme_fear["timestamp"],
-        y=extreme_fear["value"],
-        mode="markers",
-        name="Extreme Fear",
-        marker=dict(color="#FF4B4B", size=6),
-    ))
-    fig_hist.add_trace(go.Scatter(
-        x=extreme_greed["timestamp"],
-        y=extreme_greed["value"],
-        mode="markers",
-        name="Extreme Greed",
-        marker=dict(color="#00E5FF", size=6),
-    ))
-
-    # Faixas de referência
-    fig_hist.add_hrect(y0=0, y1=20, fillcolor="rgba(255,75,75,0.12)", line_width=0)
-    fig_hist.add_hrect(y0=20, y1=40, fillcolor="rgba(255,75,75,0.06)", line_width=0)
-    fig_hist.add_hrect(y0=40, y1=60, fillcolor="rgba(199,208,219,0.05)", line_width=0)
-    fig_hist.add_hrect(y0=60, y1=80, fillcolor="rgba(0,229,255,0.06)", line_width=0)
-    fig_hist.add_hrect(y0=80, y1=100, fillcolor="rgba(0,229,255,0.12)", line_width=0)
+    # Reference Background Zones
+    fig_hist.add_hrect(y0=0, y1=25, fillcolor="#FF4B4B", opacity=0.08, line_width=0)
+    fig_hist.add_hrect(y0=75, y1=100, fillcolor="#00E5FF", opacity=0.08, line_width=0)
 
     fig_hist.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=420,
+        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)", height=450,
         margin=dict(l=40, r=20, t=20, b=40),
-        showlegend=True,
+        yaxis=dict(range=[0, 100], gridcolor="rgba(255,255,255,0.05)")
     )
-    fig_hist.update_yaxes(
-        range=[0, 100],
-        tickvals=[0, 20, 40, 60, 80, 100],
-        showgrid=False,
-        tickfont=dict(color="#C7D0DB"),
-    )
-    fig_hist.update_xaxes(showgrid=False, tickfont=dict(color="#C7D0DB"))
-
     st.plotly_chart(fig_hist, use_container_width=True)
 
 else:
-    st.error("Failed to connect to Sentiment API. Check your connection.")
+    st.error("API Connection Failed")
 
-st.markdown("---")
-st.caption("Alpha Terminal Institutional Data - Updates every 24h via Alternative.me API")
+st.caption("Alpha Terminal | Dynamic Sentiment Engine")

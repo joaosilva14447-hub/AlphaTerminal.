@@ -98,18 +98,18 @@ if df is not None:
             )
         )
 
-        # Stylized arrow pointer (shaft + triangular head) in paper coordinates
+        # Stylized arrow pointer (compact, inside the arc)
         angle_deg = 180 - (selected_val / 100) * 180
         theta = math.radians(angle_deg)
         dx = math.cos(theta)
         dy = math.sin(theta)
         px = -dy
         py = dx
-        cx, cy = 0.5, 0.42
-        r_tip = 0.36
-        r_base = 0.31
-        r_tail = 0.18
-        head_w = 0.035
+        cx, cy = 0.5, 0.37
+        r_tip = 0.31
+        r_base = 0.27
+        r_tail = 0.23
+        head_w = 0.02
 
         tip_x = cx + dx * r_tip
         tip_y = cy + dy * r_tip
@@ -119,6 +119,8 @@ if df is not None:
         right_y = cy + dy * r_base - py * head_w
         tail_x = cx + dx * r_tail
         tail_y = cy + dy * r_tail
+        base_x = cx + dx * r_base
+        base_y = cy + dy * r_base
 
         arrow_head_path = (
             f"M {tip_x},{tip_y} "
@@ -134,9 +136,9 @@ if df is not None:
                     yref="paper",
                     x0=tail_x,
                     y0=tail_y,
-                    x1=left_x,
-                    y1=left_y,
-                    line=dict(color=selected_state_color, width=6),
+                    x1=base_x,
+                    y1=base_y,
+                    line=dict(color=selected_state_color, width=4),
                     layer="above",
                 ),
                 dict(

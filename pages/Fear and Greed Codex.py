@@ -34,6 +34,7 @@ st.markdown(
 
 
 BINANCE_FAPI = "https://fapi.binance.com"
+BYBIT_API = "https://api.bybit.com"
 
 
 class ApiError(RuntimeError):
@@ -74,12 +75,83 @@ class SeriesPack:
 
 
 @st.cache_data(ttl=120)
-def fetch_series(symbol: str, limit: int, interval: str) -> SeriesPack:
+def fetch_series(exchange: str, symbol: str, limit: int, interval: str) -> SeriesPack:
     symbol = symbol.strip().upper()
     limit = int(limit)
     limit = max(100, min(1000, limit))
 
-    # Price (futures klines)
+    if exchange == "Bybit (Linear)":
+        interval_map = {"1h": "60", "4h": "240"}
+        bybit_interval = interval_map.get(interval, "60")
+
+        k_resp = _get_json(
+            f"{BYBIT_API}/v5/market/kline",
+            {"category": "linear", "symbol": symbol, "interval": bybit_interval, "limit": limit},
+        )
+        if not isinstance(k_resp, dict) or int(k_resp.get("retCode", -1)) != 0:
+            raise ApiError(str(k_resp.get("retMsg") if isinstance(k_resp, dict) else "Bybit kline error"))
+        k_list = (k_resp.get("result") or {}).get("list")
+        if not isinstance(k_list, list) or not k_list:
+            raise ApiError("No kline data returned.")
+        kdf = pd.DataFrame(k_list, columns=["open_time", "open", "high", "low", "close", "volume", "turnover"])
+        kdf["ts"] = pd.to_datetime(kdf["open_time"], unit="ms", utc=True, errors="coerce")
+        kdf["close"] = pd.to_numeric(kdf["close"], errors="coerce")
+        kdf = kdf.dropna(subset=["ts", "close"]).sort_values("ts")
+
+        oi_limit = min(200, limit)
+        oi_resp = _get_json(
+            f"{BYBIT_API}/v5/market/open-interest",
+            {"category": "linear", "symbol": symbol, "intervalTime": bybit_interval, "limit": oi_limit},
+        )
+        if not isinstance(oi_resp, dict) or int(oi_resp.get("retCode", -1)) != 0:
+            raise ApiError(str(oi_resp.get("retMsg") if isinstance(oi_resp, dict) else "Bybit OI error"))
+        oi_list = (oi_resp.get("result") or {}).get("list")
+        if not isinstance(oi_list, list) or not oi_list:
+            raise ApiError("No open interest history returned.")
+        oidf = pd.DataFrame(oi_list)
+        oidf["ts"] = pd.to_datetime(oidf["timestamp"], unit="ms", utc=True, errors="coerce")
+        oidf["oi"] = pd.to_numeric(oidf["openInterest"], errors="coerce")
+        oidf = oidf.dropna(subset=["ts", "oi"]).sort_values("ts")
+
+        fund_limit = min(200, limit)
+        f_resp = _get_json(
+            f"{BYBIT_API}/v5/market/funding/history",
+            {"category": "linear", "symbol": symbol, "limit": fund_limit},
+        )
+        if not isinstance(f_resp, dict) or int(f_resp.get("retCode", -1)) != 0:
+            raise ApiError(str(f_resp.get("retMsg") if isinstance(f_resp, dict) else "Bybit funding error"))
+        f_list = (f_resp.get("result") or {}).get("list")
+        if not isinstance(f_list, list) or not f_list:
+            raise ApiError("No funding history returned.")
+        fdf = pd.DataFrame(f_list)
+        fdf["funding_ts"] = pd.to_datetime(fdf["fundingRateTimestamp"], unit="ms", utc=True, errors="coerce")
+        fdf["funding_pct"] = pd.to_numeric(fdf["fundingRate"], errors="coerce") * 100.0
+        fdf = fdf.dropna(subset=["funding_ts", "funding_pct"]).sort_values("funding_ts")
+
+        base = pd.merge(kdf[["ts", "close"]], oidf[["ts", "oi"]], on="ts", how="inner")
+        if base.empty:
+            raise ApiError("Price and OI timestamps do not overlap.")
+
+        base = pd.merge_asof(
+            base.sort_values("ts"),
+            fdf.sort_values("funding_ts"),
+            left_on="ts",
+            right_on="funding_ts",
+            direction="backward",
+        )
+
+        try:
+            tickers = _get_json(f"{BYBIT_API}/v5/market/tickers", {"category": "linear", "symbol": symbol})
+            last_price = None
+            if isinstance(tickers, dict) and int(tickers.get("retCode", -1)) == 0:
+                lst = (tickers.get("result") or {}).get("list")
+                if isinstance(lst, list) and lst:
+                    last_price = float(lst[0].get("lastPrice"))
+        except Exception:
+            last_price = None
+
+        return SeriesPack(df=base, last_price=last_price)
+
     klines = _get_json(f"{BINANCE_FAPI}/fapi/v1/klines", {"symbol": symbol, "interval": interval, "limit": limit})
     if not isinstance(klines, list) or not klines:
         raise ApiError("No kline data returned.")
@@ -104,7 +176,6 @@ def fetch_series(symbol: str, limit: int, interval: str) -> SeriesPack:
     kdf["close"] = pd.to_numeric(kdf["close"], errors="coerce")
     kdf = kdf.dropna(subset=["ts", "close"]).sort_values("ts")
 
-    # Open interest history
     oi = _get_json(
         f"{BINANCE_FAPI}/futures/data/openInterestHist",
         {"symbol": symbol, "period": interval, "limit": limit},
@@ -116,7 +187,6 @@ def fetch_series(symbol: str, limit: int, interval: str) -> SeriesPack:
     oidf["oi"] = pd.to_numeric(oidf["sumOpenInterest"], errors="coerce")
     oidf = oidf.dropna(subset=["ts", "oi"]).sort_values("ts")
 
-    # Funding history (8h cadence)
     funding = _get_json(f"{BINANCE_FAPI}/fapi/v1/fundingRate", {"symbol": symbol, "limit": min(1000, limit)})
     if not isinstance(funding, list) or not funding:
         raise ApiError("No funding history returned.")
@@ -125,12 +195,10 @@ def fetch_series(symbol: str, limit: int, interval: str) -> SeriesPack:
     fdf["funding_pct"] = pd.to_numeric(fdf["fundingRate"], errors="coerce") * 100.0
     fdf = fdf.dropna(subset=["funding_ts", "funding_pct"]).sort_values("funding_ts")
 
-    # Merge price + OI on timestamp (hourly)
     base = pd.merge(kdf[["ts", "close"]], oidf[["ts", "oi"]], on="ts", how="inner")
     if base.empty:
         raise ApiError("Price and OI timestamps do not overlap.")
 
-    # Align funding to each timestamp (backward fill)
     base = pd.merge_asof(
         base.sort_values("ts"),
         fdf.sort_values("funding_ts"),
@@ -151,7 +219,9 @@ left, right = st.columns([1.2, 1.0])
 with left:
     symbol = st.text_input("SYMBOL", "BTCUSDT").strip().upper()
 with right:
-    interval = st.selectbox("INTERVAL", ["1h", "4h"], index=0)
+    exchange = st.selectbox("EXCHANGE", ["Bybit (Linear)", "Binance (USD-M)"], index=0)
+
+interval = st.selectbox("INTERVAL", ["1h", "4h"], index=0)
 
 controls = st.columns([1, 1, 1, 1])
 limit = int(controls[0].selectbox("LOOKBACK POINTS", [200, 400, 800, 1000], index=1))
@@ -165,8 +235,11 @@ w_momentum = float(weights[1].selectbox("W MOMENTUM", [0.2, 0.25, 0.3], index=1)
 w_oi = float(weights[2].selectbox("W OI", [0.2, 0.25, 0.3], index=1))
 w_vol = float(weights[3].selectbox("W VOL (FEAR)", [0.1, 0.15, 0.2], index=1))
 
+if exchange == "Bybit (Linear)" and limit > 200:
+    st.caption("Bybit limits OI/funding history to 200 points per request; using the latest 200.")
+
 try:
-    pack = fetch_series(symbol=symbol, limit=limit, interval=interval)
+    pack = fetch_series(exchange=exchange, symbol=symbol, limit=limit, interval=interval)
 except Exception as exc:
     st.error(f"Data unavailable: {exc}")
     st.stop()
@@ -305,6 +378,5 @@ The composite is a weighted sum mapped to `0..100` with a `tanh` curve.
     )
 
 st.caption(
-    "Free data sources (public): Binance USD-M `klines`, `openInterestHist`, `fundingRate`."
+    "Free data sources (public): Bybit V5 `market/kline`, `open-interest`, `funding/history`."
 )
-

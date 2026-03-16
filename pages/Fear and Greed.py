@@ -3,7 +3,7 @@ import requests
 import plotly.graph_objects as go
 import pandas as pd
 
-# Configuração Padrão AlphaTerminal
+# Configuracao Padrao AlphaTerminal
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
 
 st.markdown(
@@ -34,26 +34,46 @@ def get_fng_data(limit=365):
         return None
 
 def state_from_value(value: int):
-    # Faixas oficiais (Alternative.me): 0-24, 25-49, 50-54, 55-74, 75-100
+    # Official bands (Alternative.me): 0-24, 25-49, 50-54, 55-74, 75-100
     if value < 25:
-        return "Extreme Fear", "#1B5E20"
+        return "Extreme Fear", "#FF3B30"
     if value < 50:
-        return "Fear", "#2E7D32"
+        return "Fear", "#FF7A45"
     if value < 55:
-        return "Neutral", "#F9A825"
+        return "Neutral", "#F5C84B"
     if value < 75:
-        return "Greed", "#E65100"
-    return "Extreme Greed", "#B71C1C"
+        return "Greed", "#3CCB7F"
+    return "Extreme Greed", "#00E676"
 
 df = get_fng_data(limit=365)
 
 if df is not None:
-    current_val = df.iloc[0]["value"]
-    current_status = df.iloc[0]["value_classification"]
-    prev_val = df.iloc[1]["value"] if len(df) > 1 else current_val
-    delta = current_val - prev_val
+    current_val = int(df.iloc[0]["value"])
+    current_status = str(df.iloc[0]["value_classification"])
+    prev_val = int(df.iloc[1]["value"]) if len(df) > 1 else current_val
+    current_delta = current_val - prev_val
 
-    state_label, state_color = state_from_value(current_val)
+    df_hist = df.sort_values("timestamp").copy()
+    df_hist["date_label"] = df_hist["timestamp"].dt.strftime("%Y-%m-%d")
+    df_hist["state_label"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[0])
+    df_hist["state_color"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[1])
+
+    selected_label = st.select_slider(
+        "VIEW DATE (select to update the gauge)",
+        options=df_hist["date_label"].tolist(),
+        value=df_hist["date_label"].iloc[-1],
+    )
+    selected_row = df_hist[df_hist["date_label"] == selected_label].iloc[-1]
+    selected_val = int(selected_row["value"])
+    selected_status = str(selected_row["value_classification"])
+    selected_state_label, selected_state_color = state_from_value(selected_val)
+
+    selected_idx = df_hist.index.get_loc(selected_row.name)
+    if isinstance(selected_idx, slice):
+        selected_idx = selected_idx.start or 0
+    prev_idx = max(0, selected_idx - 1)
+    selected_prev = int(df_hist.iloc[prev_idx]["value"])
+    selected_delta = selected_val - selected_prev
 
     st.title("Fear & Greed Index | Institutional Monitor")
 
@@ -63,18 +83,21 @@ if df is not None:
         fig = go.Figure(
             go.Indicator(
                 mode="gauge+number",
-                value=current_val,
-                title={"text": f"Current Sentiment: {current_status}", "font": {"color": state_color, "size": 24}},
+                value=selected_val,
+                title={
+                    "text": f"Sentiment on {selected_label}: {selected_status}",
+                    "font": {"color": selected_state_color, "size": 24},
+                },
                 gauge={
                     "axis": {"range": [0, 100], "tickcolor": "white"},
-                    "bar": {"color": state_color},
+                    "bar": {"color": selected_state_color},
                     "bgcolor": "rgba(0,0,0,0)",
                     "steps": [
-                        {"range": [0, 25], "color": "rgba(27, 94, 32, 0.20)"},
-                        {"range": [25, 50], "color": "rgba(46, 125, 50, 0.18)"},
-                        {"range": [50, 55], "color": "rgba(249, 168, 37, 0.16)"},
-                        {"range": [55, 75], "color": "rgba(230, 81, 0, 0.18)"},
-                        {"range": [75, 100], "color": "rgba(183, 28, 28, 0.22)"},
+                        {"range": [0, 25], "color": "rgba(255, 59, 48, 0.22)"},
+                        {"range": [25, 50], "color": "rgba(255, 122, 69, 0.20)"},
+                        {"range": [50, 55], "color": "rgba(245, 200, 75, 0.18)"},
+                        {"range": [55, 75], "color": "rgba(60, 203, 127, 0.20)"},
+                        {"range": [75, 100], "color": "rgba(0, 230, 118, 0.22)"},
                     ],
                 },
             )
@@ -84,7 +107,8 @@ if df is not None:
 
     with col2:
         st.markdown("### Sentiment Delta (24h)")
-        st.metric(label="Change vs Yesterday", value=f"{current_val} pts", delta=delta)
+        st.metric(label="Change vs Previous", value=f"{selected_val} pts", delta=selected_delta)
+        st.caption(f"Current: {current_val} pts ({current_status}, {current_delta:+} vs yesterday)")
 
         st.markdown("---")
         st.markdown("### Last 7 Days")
@@ -101,22 +125,47 @@ if df is not None:
             use_container_width=True,
         )
 
-    # Gráfico histórico (últimos meses)
+    # Historical chart
     st.markdown("---")
     st.markdown("### Sentiment Historical (Last Months)")
 
-    df_hist = df.sort_values("timestamp")
-
     fig_hist = go.Figure()
-    fig_hist.add_trace(
-        go.Scatter(
-            x=df_hist["timestamp"],
-            y=df_hist["value"],
-            mode="lines",
-            name="F&G",
-            line=dict(color=state_color, width=2.2),
+    legend_added = set()
+    start_idx = 0
+    for i in range(1, len(df_hist)):
+        if df_hist["state_label"].iloc[i] != df_hist["state_label"].iloc[i - 1]:
+            seg = df_hist.iloc[start_idx:i]
+            label = seg["state_label"].iloc[0]
+            color = seg["state_color"].iloc[0]
+            fig_hist.add_trace(
+                go.Scatter(
+                    x=seg["timestamp"],
+                    y=seg["value"],
+                    mode="lines",
+                    name=label,
+                    line=dict(color=color, width=2.2),
+                    showlegend=label not in legend_added,
+                    hovertemplate="%{x}<br>Value=%{y}<br>State=" + label + "<extra></extra>",
+                )
+            )
+            legend_added.add(label)
+            start_idx = i
+    if len(df_hist) > 0:
+        seg = df_hist.iloc[start_idx:]
+        label = seg["state_label"].iloc[0]
+        color = seg["state_color"].iloc[0]
+        fig_hist.add_trace(
+            go.Scatter(
+                x=seg["timestamp"],
+                y=seg["value"],
+                mode="lines",
+                name=label,
+                line=dict(color=color, width=2.2),
+                showlegend=label not in legend_added,
+                hovertemplate="%{x}<br>Value=%{y}<br>State=" + label + "<extra></extra>",
+            )
         )
-    )
+        legend_added.add(label)
 
     extreme_fear = df_hist[df_hist["value"] <= 20]
     extreme_greed = df_hist[df_hist["value"] >= 80]
@@ -127,7 +176,7 @@ if df is not None:
             y=extreme_fear["value"],
             mode="markers",
             name="Extreme Fear",
-            marker=dict(color="#1B5E20", size=7, symbol="triangle-down"),
+            marker=dict(color="#FF3B30", size=7, symbol="triangle-down"),
         )
     )
     fig_hist.add_trace(
@@ -136,15 +185,30 @@ if df is not None:
             y=extreme_greed["value"],
             mode="markers",
             name="Extreme Greed",
-            marker=dict(color="#B71C1C", size=7, symbol="triangle-up"),
+            marker=dict(color="#00E676", size=7, symbol="triangle-up"),
         )
     )
 
-    fig_hist.add_hrect(y0=0, y1=25, fillcolor="rgba(27, 94, 32, 0.10)", line_width=0)
-    fig_hist.add_hrect(y0=25, y1=50, fillcolor="rgba(46, 125, 50, 0.08)", line_width=0)
-    fig_hist.add_hrect(y0=50, y1=55, fillcolor="rgba(249, 168, 37, 0.06)", line_width=0)
-    fig_hist.add_hrect(y0=55, y1=75, fillcolor="rgba(230, 81, 0, 0.08)", line_width=0)
-    fig_hist.add_hrect(y0=75, y1=100, fillcolor="rgba(183, 28, 28, 0.10)", line_width=0)
+    fig_hist.add_hrect(y0=0, y1=25, fillcolor="rgba(255, 59, 48, 0.10)", line_width=0)
+    fig_hist.add_hrect(y0=25, y1=50, fillcolor="rgba(255, 122, 69, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=50, y1=55, fillcolor="rgba(245, 200, 75, 0.06)", line_width=0)
+    fig_hist.add_hrect(y0=55, y1=75, fillcolor="rgba(60, 203, 127, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=75, y1=100, fillcolor="rgba(0, 230, 118, 0.10)", line_width=0)
+
+    fig_hist.add_vline(
+        x=selected_row["timestamp"],
+        line=dict(color=selected_state_color, width=1, dash="dot"),
+    )
+    fig_hist.add_trace(
+        go.Scatter(
+            x=[selected_row["timestamp"]],
+            y=[selected_val],
+            mode="markers",
+            name="Selected",
+            marker=dict(color=selected_state_color, size=9, symbol="circle"),
+            showlegend=False,
+        )
+    )
 
     fig_hist.update_layout(
         template="plotly_dark",

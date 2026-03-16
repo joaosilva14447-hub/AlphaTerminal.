@@ -71,9 +71,9 @@ if df is not None:
 
     st.title("Fear & Greed Index | Institutional Monitor")
 
-    col1, col2 = st.columns([2, 1])
+   col1, col2 = st.columns([2, 1])
 
-   with col1:
+    with col1:
         # 1. Create the base gauge chart
         fig = go.Figure(
             go.Indicator(
@@ -85,7 +85,7 @@ if df is not None:
                 },
                 gauge={
                     "axis": {"range": [0, 100], "tickcolor": "white"},
-                    "bar": {"color": "rgba(0,0,0,0)"}, # Hide the default inner bar so the arrow stands out
+                    "bar": {"color": "rgba(0,0,0,0)"},
                     "bgcolor": "rgba(0,0,0,0)",
                     "steps": [
                         {"range": [0, 25], "color": "rgba(255, 59, 48, 0.22)"},
@@ -117,12 +117,12 @@ if df is not None:
         
         # 3. Draw the arrow using annotations
         fig.add_annotation(
-            ax=x_center, axref='paper', # Tail x
-            ay=y_center, ayref='paper', # Tail y
-            x=x_end, xref='paper',      # Head x
-            y=y_end, yref='paper',      # Head y
+            ax=x_center, axref='paper',
+            ay=y_center, ayref='paper',
+            x=x_end, xref='paper',
+            y=y_end, yref='paper',
             showarrow=True,
-            arrowhead=2,                # Arrow shape (1-8)
+            arrowhead=2,
             arrowsize=1.5,
             arrowwidth=4,
             arrowcolor=selected_state_color,

@@ -130,11 +130,25 @@ if df is not None:
     st.markdown("### Sentiment Historical (Last Months)")
 
     fig_hist = go.Figure()
+
+    # Base line for continuity
+    fig_hist.add_trace(
+        go.Scatter(
+            x=df_hist["timestamp"],
+            y=df_hist["value"],
+            mode="lines",
+            name="F&G (base)",
+            line=dict(color="rgba(199, 208, 219, 0.45)", width=1.2),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+
     legend_added = set()
     start_idx = 0
     for i in range(1, len(df_hist)):
         if df_hist["state_label"].iloc[i] != df_hist["state_label"].iloc[i - 1]:
-            seg = df_hist.iloc[start_idx:i]
+            seg = df_hist.iloc[start_idx : i + 1]  # include boundary
             label = seg["state_label"].iloc[0]
             color = seg["state_color"].iloc[0]
             fig_hist.add_trace(
@@ -213,23 +227,4 @@ if df is not None:
     fig_hist.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=420,
-        margin=dict(l=40, r=20, t=20, b=40),
-        showlegend=True,
-    )
-    fig_hist.update_yaxes(
-        range=[0, 100],
-        tickvals=[0, 20, 40, 60, 80, 100],
-        showgrid=False,
-        tickfont=dict(color="#C7D0DB"),
-    )
-    fig_hist.update_xaxes(showgrid=False, tickfont=dict(color="#C7D0DB"))
-
-    st.plotly_chart(fig_hist, use_container_width=True)
-
-else:
-    st.error("Failed to connect to Sentiment API. Check your connection.")
-
-st.markdown("---")
-st.caption("Alpha Terminal Institutional Data - Updates every 24h via Alternative.me API")
+        plot_bg

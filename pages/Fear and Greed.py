@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import plotly.graph_objects as go
 import pandas as pd
+import numpy as np
 
 # Configuracao Padrao AlphaTerminal
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
@@ -48,6 +49,48 @@ def state_from_value(value: int):
     return "Extreme Greed", "#00E676"
 
 
+def add_gauge_needle(fig, value, color, cx=0.5, cy=0.255, radius=0.32, aspect=0.50):
+    """
+    Adiciona uma seta triangular ao gauge do Plotly.
+    cx, cy  = centro do semicírculo em paper coords
+    radius  = comprimento da seta em paper coords
+    aspect  = height/width do figure (ajustar se a seta ficar torta)
+    """
+    # value 0 → 180° (esquerda), value 100 → 0° (direita)
+    angle_rad = np.radians(180 - (value / 100) * 180)
+
+    # Ponta da seta
+    tip_x = cx + radius * np.cos(angle_rad)
+    tip_y = cy + radius * np.sin(angle_rad) * aspect
+
+    # Base da seta (perpendicular, largura pequena)
+    w = 0.015
+    perp = angle_rad + np.pi / 2
+    bx1 = cx + w * np.cos(perp)
+    by1 = cy + w * np.sin(perp) * aspect
+    bx2 = cx - w * np.cos(perp)
+    by2 = cy - w * np.sin(perp) * aspect
+
+    # Triângulo da seta
+    fig.add_shape(
+        type="path",
+        path=f"M {tip_x:.4f},{tip_y:.4f} L {bx1:.4f},{by1:.4f} L {bx2:.4f},{by2:.4f} Z",
+        fillcolor=color,
+        line=dict(color=color, width=1),
+        xref="paper", yref="paper",
+    )
+    # Círculo central
+    r = 0.018
+    fig.add_shape(
+        type="circle",
+        x0=cx - r,           y0=cy - r * aspect * 1.4,
+        x1=cx + r,           y1=cy + r * aspect * 1.4,
+        fillcolor=color,
+        line=dict(color=color),
+        xref="paper", yref="paper",
+    )
+
+
 df = get_fng_data(limit=365)
 
 if df is not None:
@@ -84,25 +127,33 @@ if df is not None:
                 },
                 gauge={
                     "axis": {"range": [0, 100], "tickcolor": "white"},
-                    "bar": {"color": selected_state_color},
+                    # Barra original ocultada — substituída pela seta triangular
+                    "bar": {"color": "rgba(0,0,0,0)", "thickness": 0},
                     "bgcolor": "rgba(0,0,0,0)",
-                    # Pointer line to highlight the current zone
                     "threshold": {
-                        "line": {"color": selected_state_color, "width": 5},
-                        "thickness": 0.75,
+                        "line": {"color": "rgba(0,0,0,0)", "width": 0},
+                        "thickness": 0,
                         "value": selected_val,
                     },
                     "steps": [
-                        {"range": [0, 25], "color": "rgba(255, 59, 48, 0.22)"},
-                        {"range": [25, 50], "color": "rgba(255, 122, 69, 0.20)"},
-                        {"range": [50, 55], "color": "rgba(245, 200, 75, 0.18)"},
-                        {"range": [55, 75], "color": "rgba(60, 203, 127, 0.20)"},
+                        {"range": [0, 25],   "color": "rgba(255, 59, 48, 0.22)"},
+                        {"range": [25, 50],  "color": "rgba(255, 122, 69, 0.20)"},
+                        {"range": [50, 55],  "color": "rgba(245, 200, 75, 0.18)"},
+                        {"range": [55, 75],  "color": "rgba(60, 203, 127, 0.20)"},
                         {"range": [75, 100], "color": "rgba(0, 230, 118, 0.22)"},
                     ],
                 },
             )
         )
-        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=450)
+        fig.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            font={"color": "white"},
+            height=450,
+        )
+
+        # Adiciona a seta triangular sobre o gauge
+        add_gauge_needle(fig, selected_val, selected_state_color)
+
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
@@ -184,11 +235,11 @@ if df is not None:
         )
     )
 
-    fig_hist.add_hrect(y0=0, y1=25, fillcolor="rgba(255, 59, 48, 0.10)", line_width=0)
-    fig_hist.add_hrect(y0=25, y1=50, fillcolor="rgba(255, 122, 69, 0.08)", line_width=0)
-    fig_hist.add_hrect(y0=50, y1=55, fillcolor="rgba(245, 200, 75, 0.06)", line_width=0)
-    fig_hist.add_hrect(y0=55, y1=75, fillcolor="rgba(60, 203, 127, 0.08)", line_width=0)
-    fig_hist.add_hrect(y0=75, y1=100, fillcolor="rgba(0, 230, 118, 0.10)", line_width=0)
+    fig_hist.add_hrect(y0=0,  y1=25,  fillcolor="rgba(255, 59, 48, 0.10)",  line_width=0)
+    fig_hist.add_hrect(y0=25, y1=50,  fillcolor="rgba(255, 122, 69, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=50, y1=55,  fillcolor="rgba(245, 200, 75, 0.06)", line_width=0)
+    fig_hist.add_hrect(y0=55, y1=75,  fillcolor="rgba(60, 203, 127, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=75, y1=100, fillcolor="rgba(0, 230, 118, 0.10)",  line_width=0)
 
     fig_hist.add_vline(
         x=selected_row["timestamp"],

@@ -71,10 +71,9 @@ if df is not None:
 
     st.title("Fear & Greed Index | Institutional Monitor")
 
-   col1, col2 = st.columns([2, 1])
+    col1, col2 = st.columns([2, 1])
 
     with col1:
-        # 1. Create the base gauge chart
         fig = go.Figure(
             go.Indicator(
                 mode="gauge+number",
@@ -85,8 +84,14 @@ if df is not None:
                 },
                 gauge={
                     "axis": {"range": [0, 100], "tickcolor": "white"},
-                    "bar": {"color": "rgba(0,0,0,0)"},
+                    "bar": {"color": selected_state_color},
                     "bgcolor": "rgba(0,0,0,0)",
+                    # Pointer line to highlight the current zone
+                    "threshold": {
+                        "line": {"color": selected_state_color, "width": 5},
+                        "thickness": 0.75,
+                        "value": selected_val,
+                    },
                     "steps": [
                         {"range": [0, 25], "color": "rgba(255, 59, 48, 0.22)"},
                         {"range": [25, 50], "color": "rgba(255, 122, 69, 0.20)"},
@@ -97,44 +102,9 @@ if df is not None:
                 },
             )
         )
-        
-        # 2. Calculate the arrow angle based on the value (0-100)
-        import math
-        # 0 points left (180 degrees), 100 points right (0 degrees)
-        theta = 180 - (selected_val / 100) * 180
-        theta_rad = math.radians(theta)
-        
-        # Center coordinates for Plotly's default indicator layout
-        x_center = 0.5
-        y_center = 0.24 
-        
-        # Length of the needle/arrow
-        radius = 0.35 
-        
-        # Calculate the end points of the arrow
-        x_end = x_center + radius * math.cos(theta_rad)
-        y_end = y_center + radius * math.sin(theta_rad)
-        
-        # 3. Draw the arrow using annotations
-        fig.add_annotation(
-            ax=x_center, axref='paper',
-            ay=y_center, ayref='paper',
-            x=x_end, xref='paper',
-            y=y_end, yref='paper',
-            showarrow=True,
-            arrowhead=2,
-            arrowsize=1.5,
-            arrowwidth=4,
-            arrowcolor=selected_state_color,
-        )
-
-        fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", 
-            font={"color": "white"}, 
-            height=450
-        )
+        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=450)
         st.plotly_chart(fig, use_container_width=True)
-       
+
     with col2:
         st.markdown("### Sentiment Delta (24h)")
         st.metric(label="Change vs Previous", value=f"{selected_val} pts", delta=selected_delta)

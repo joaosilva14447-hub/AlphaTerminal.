@@ -98,27 +98,57 @@ if df is not None:
             )
         )
 
-        # Arrow pointer for the current zone (paper coords)
+        # Stylized arrow pointer (shaft + triangular head) in paper coordinates
         angle_deg = 180 - (selected_val / 100) * 180
         theta = math.radians(angle_deg)
+        dx = math.cos(theta)
+        dy = math.sin(theta)
+        px = -dy
+        py = dx
         cx, cy = 0.5, 0.42
-        r = 0.36
-        x = cx + r * math.cos(theta)
-        y = cy + r * math.sin(theta)
-        fig.add_annotation(
-            x=x,
-            y=y,
-            xref="paper",
-            yref="paper",
-            ax=cx,
-            ay=cy,
-            axref="paper",
-            ayref="paper",
-            showarrow=True,
-            arrowhead=3,
-            arrowsize=1.2,
-            arrowwidth=3,
-            arrowcolor=selected_state_color,
+        r_tip = 0.36
+        r_base = 0.31
+        r_tail = 0.18
+        head_w = 0.035
+
+        tip_x = cx + dx * r_tip
+        tip_y = cy + dy * r_tip
+        left_x = cx + dx * r_base + px * head_w
+        left_y = cy + dy * r_base + py * head_w
+        right_x = cx + dx * r_base - px * head_w
+        right_y = cy + dy * r_base - py * head_w
+        tail_x = cx + dx * r_tail
+        tail_y = cy + dy * r_tail
+
+        arrow_head_path = (
+            f"M {tip_x},{tip_y} "
+            f"L {left_x},{left_y} "
+            f"L {right_x},{right_y} Z"
+        )
+
+        fig.update_layout(
+            shapes=[
+                dict(
+                    type="line",
+                    xref="paper",
+                    yref="paper",
+                    x0=tail_x,
+                    y0=tail_y,
+                    x1=left_x,
+                    y1=left_y,
+                    line=dict(color=selected_state_color, width=6),
+                    layer="above",
+                ),
+                dict(
+                    type="path",
+                    path=arrow_head_path,
+                    xref="paper",
+                    yref="paper",
+                    fillcolor=selected_state_color,
+                    line=dict(color=selected_state_color, width=1),
+                    layer="above",
+                ),
+            ]
         )
 
         fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=450)

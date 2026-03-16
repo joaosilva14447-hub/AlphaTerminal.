@@ -83,8 +83,8 @@ def add_gauge_needle(fig, value, color, cx=0.5, cy=0.255, radius=0.32, aspect=0.
     r = 0.018
     fig.add_shape(
         type="circle",
-        x0=cx - r,           y0=cy - r * aspect * 1.4,
-        x1=cx + r,           y1=cy + r * aspect * 1.4,
+        x0=cx - r,       y0=cy - r * aspect * 1.4,
+        x1=cx + r,       y1=cy + r * aspect * 1.4,
         fillcolor=color,
         line=dict(color=color),
         xref="paper", yref="paper",

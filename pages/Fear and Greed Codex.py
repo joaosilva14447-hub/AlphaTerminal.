@@ -6,7 +6,7 @@ import pandas as pd
 # Configuração Padrão AlphaTerminal
 st.set_page_config(page_title="Fear & Greed Pro", layout="wide")
 
-@st.cache_data(ttl=3600) # Cache de 1 hora para performance de elite
+@st.cache_data(ttl=3600) # Cache de 1 hora para performance
 def get_fng_data(limit=7):
     try:
         r = requests.get(f'https://api.alternative.me/fng/?limit={limit}')
@@ -32,28 +32,39 @@ if df is not None:
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        # Gauge Chart
-        color = "#00E5FF" if current_val > 45 else "#FF4B4B"
+        # Gauge Chart OTIMIZADO para o visual de "arco preenchido" em ambas as pontas
+        
+        # Cores Sólidas AlphaTerminal
+        solid_red = "#FF4B4B" # AlphaRed para Medo
+        solid_aqua = "#00E5FF" # Aqua para Ganância
+        arc_bg_color = "rgba(255, 255, 255, 0.05)" # Fundo muito suave
+
+        # Define a cor principal do ponteiro e do número
+        # main_color = solid_aqua if current_val > 45 else solid_red
+
         fig = go.Figure(go.Indicator(
             mode = "gauge+number",
             value = current_val,
-            title = {'text': f"Current Sentiment: {current_status}", 'font': {'color': color, 'size': 24}},
+            title = {'text': f"Current Sentiment: {current_status}", 'font': {'color': solid_red if current_val <= 45 else solid_aqua, 'size': 24}},
             gauge = {
                 'axis': {'range': [0, 100], 'tickcolor': "white"},
-                'bar': {'color': color},
-                'bgcolor': "rgba(0,0,0,0)",
+                'bar': {'color': solid_red if current_val <= 45 else solid_aqua}, # O ponteiro brilha
+                'bgcolor': arc_bg_color,
+                'borderwidth': 0, # Remove a borda para ficar limpo
                 'steps': [
-                    {'range': [0, 25], 'color': 'rgba(255, 75, 75, 0.2)'},
-                    {'range': [75, 100], 'color': 'rgba(0, 229, 255, 0.2)'}
+                    # AQUI ESTÁ A CHAVE: Preenchimento SÓLIDO e BRILHANTE nas pontas
+                    {'range': [0, 20], 'color': solid_red}, # Fear Sólido (como na imagem 8)
+                    {'range': [20, 80], 'color': "rgba(128, 128, 128, 0.05)"}, # Zona Neutra suave
+                    {'range': [80, 100], 'color': solid_aqua} # Greed Sólido (Aqua)
                 ]
             }
         ))
+        
         fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', font={'color': "white"}, height=450)
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
         st.markdown("### Sentiment Delta (24h)")
-        delta_color = "inverse" if delta < 0 else "normal"
         st.metric(label="Change vs Yesterday", value=f"{current_val} pts", delta=delta)
         
         st.markdown("---")

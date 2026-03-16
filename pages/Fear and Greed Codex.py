@@ -27,7 +27,7 @@ if df is not None:
     prev_val = df.iloc[1]["value"] if len(df) > 1 else current_val
     delta = current_val - prev_val
 
-    st.title("Fear & Greed Index | Institutional Monitor")
+    st.title("Fear & Greed Index")
 
     col1, col2 = st.columns([2, 1])
 
@@ -75,7 +75,7 @@ if df is not None:
 
     # Gráfico histórico (últimos meses)
     st.markdown("---")
-    st.markdown("### Sentiment Histórico (Últimos Meses)")
+    st.markdown("### Sentiment Over Time (Last Months)")
 
     df_hist = df.sort_values("timestamp")
 

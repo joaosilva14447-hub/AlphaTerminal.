@@ -3,13 +3,13 @@ import requests
 import plotly.graph_objects as go
 import pandas as pd
 
-# 1. Configuração AlphaTerminal
+# Configuração Padrão AlphaTerminal
 st.set_page_config(page_title="Fear & Greed Pro", layout="wide")
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600)  # Cache de 1 hora
 def get_fng_data(limit=365):
     try:
-        r = requests.get(f"https://api.alternative.me/fng/?limit={limit}")
+        r = requests.get(f"https://api.alternative.me/fng/?limit={limit}", timeout=5)
         data = r.json()
         df = pd.DataFrame(data["data"])
         df["value"] = df["value"].astype(int)
@@ -18,65 +18,122 @@ def get_fng_data(limit=365):
     except:
         return None
 
-df = get_fng_data()
+df = get_fng_data(limit=365)
 
 if df is not None:
+    # API vem em ordem descendente (mais recente primeiro)
     current_val = df.iloc[0]["value"]
     current_status = df.iloc[0]["value_classification"]
-    
-    # 2. Definição de Cores e Fases (Alpha Pallet)
-    color_map = {
-        "Extreme Fear": "#FF4B4B",        # AlphaRed
-        "Fear": "rgba(255, 75, 75, 0.5)", # Red Translucent
-        "Neutral": "#C7D0DB",             # Slate/Steel (Neutro)
-        "Greed": "rgba(0, 229, 255, 0.5)",# Aqua Translucent
-        "Extreme Greed": "#00E5FF"        # Aqua/AlphaBlue
-    }
-    
-    # Lógica de cor dinâmica baseada no valor real
-    if current_val <= 25: current_color = color_map["Extreme Fear"]
-    elif current_val <= 45: current_color = color_map["Fear"]
-    elif current_val <= 55: current_color = color_map["Neutral"]
-    elif current_val <= 75: current_color = color_map["Greed"]
-    else: current_color = color_map["Extreme Greed"]
+    prev_val = df.iloc[1]["value"] if len(df) > 1 else current_val
+    delta = current_val - prev_val
 
     st.title("Fear & Greed Index | Institutional Monitor")
 
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        # Gauge com 5 Fases Sólidas
-        gauge_fig = go.Figure(go.Indicator(
+        # Gauge Chart
+        color = "#00E5FF" if current_val > 45 else "#FF4B4B"
+        fig = go.Figure(go.Indicator(
             mode="gauge+number",
             value=current_val,
-            title={"text": f"Sentiment: {current_status}", "font": {"color": current_color, "size": 24}},
+            title={"text": f"Current Sentiment: {current_status}", "font": {"color": color, "size": 24}},
             gauge={
-                "axis": {"range": [0, 100], "tickcolor": "white", "tickwidth": 2},
-                "bar": {"color": "white", "thickness": 0.2},
-                "bgcolor": "rgba(255,255,255,0.03)",
+                "axis": {"range": [0, 100], "tickcolor": "white"},
+                "bar": {"color": color},
+                "bgcolor": "rgba(0,0,0,0)",
                 "steps": [
-                    {"range": [0, 25], "color": color_map["Extreme Fear"], "thickness": 1},
-                    {"range": [25, 45], "color": color_map["Fear"], "thickness": 1},
-                    {"range": [45, 55], "color": color_map["Neutral"], "thickness": 1},
-                    {"range": [55, 75], "color": color_map["Greed"], "thickness": 1},
-                    {"range": [75, 100], "color": color_map["Extreme Greed"], "thickness": 1},
+                    {"range": [0, 25], "color": "rgba(255, 75, 75, 0.2)"},
+                    {"range": [75, 100], "color": "rgba(0, 229, 255, 0.2)"},
                 ],
             },
         ))
-        gauge_fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=450)
-        st.plotly_chart(gauge_fig, use_container_width=True)
+        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=450)
+        st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        st.markdown("### Historical Analysis")
-        # Pequena lógica para mostrar o status do dia anterior
-        prev_val = df.iloc[1]["value"]
-        delta = current_val - prev_val
-        st.metric(label="24h Change", value=f"{current_val} pts", delta=delta)
-        
+        st.markdown("### Sentiment Delta (24h)")
+        st.metric(label="Change vs Yesterday", value=f"{current_val} pts", delta=delta)
+
         st.markdown("---")
-        st.markdown("### Recent Snapshots")
-        st.dataframe(df[["timestamp", "value", "value_classification"]].head(7), use_container_width=True, hide_index=True)
+        st.markdown("### Last 7 Days")
+
+        history_display = df[["timestamp", "value", "value_classification"]].head(7).copy()
+        history_display.columns = ["Date", "Value", "Classification"]
+
+        def highlight_fng(val):
+            if val > 70:
+                return "color: #00E5FF; font-weight: bold"
+            if val < 30:
+                return "color: #FF4B4B; font-weight: bold"
+            return "color: white"
+
+        st.dataframe(
+            history_display.style.applymap(highlight_fng, subset=["Value"]),
+            use_container_width=True
+        )
+
+    # Gráfico histórico (últimos meses)
+    st.markdown("---")
+    st.markdown("### Sentiment Histórico (Últimos Meses)")
+
+    df_hist = df.sort_values("timestamp")
+
+    fig_hist = go.Figure()
+    fig_hist.add_trace(go.Scatter(
+        x=df_hist["timestamp"],
+        y=df_hist["value"],
+        mode="lines",
+        name="F&G",
+        line=dict(color="#C7D0DB", width=2),
+    ))
+
+    # Marcar extremos
+    extreme_fear = df_hist[df_hist["value"] <= 20]
+    extreme_greed = df_hist[df_hist["value"] >= 80]
+
+    fig_hist.add_trace(go.Scatter(
+        x=extreme_fear["timestamp"],
+        y=extreme_fear["value"],
+        mode="markers",
+        name="Extreme Fear",
+        marker=dict(color="#FF4B4B", size=6),
+    ))
+    fig_hist.add_trace(go.Scatter(
+        x=extreme_greed["timestamp"],
+        y=extreme_greed["value"],
+        mode="markers",
+        name="Extreme Greed",
+        marker=dict(color="#00E5FF", size=6),
+    ))
+
+    # Faixas de referência
+    fig_hist.add_hrect(y0=0, y1=20, fillcolor="rgba(255,75,75,0.12)", line_width=0)
+    fig_hist.add_hrect(y0=20, y1=40, fillcolor="rgba(255,75,75,0.06)", line_width=0)
+    fig_hist.add_hrect(y0=40, y1=60, fillcolor="rgba(199,208,219,0.05)", line_width=0)
+    fig_hist.add_hrect(y0=60, y1=80, fillcolor="rgba(0,229,255,0.06)", line_width=0)
+    fig_hist.add_hrect(y0=80, y1=100, fillcolor="rgba(0,229,255,0.12)", line_width=0)
+
+    fig_hist.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=420,
+        margin=dict(l=40, r=20, t=20, b=40),
+        showlegend=True,
+    )
+    fig_hist.update_yaxes(
+        range=[0, 100],
+        tickvals=[0, 20, 40, 60, 80, 100],
+        showgrid=False,
+        tickfont=dict(color="#C7D0DB"),
+    )
+    fig_hist.update_xaxes(showgrid=False, tickfont=dict(color="#C7D0DB"))
+
+    st.plotly_chart(fig_hist, use_container_width=True)
 
 else:
-    st.error("Connection Error")
+    st.error("Failed to connect to Sentiment API. Check your connection.")
 
+st.markdown("---")
+st.caption("Alpha Terminal Institutional Data - Updates every 24h via Alternative.me API")

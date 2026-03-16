@@ -2,91 +2,80 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
-from datetime import datetime, timedelta
 
 # 1. Configuração AlphaTerminal
 st.set_page_config(page_title="Liquidation Engine", layout="wide")
 
-@st.cache_data(ttl=300) # Atualiza a cada 5 minutos
+@st.cache_data(ttl=300)
 def get_liq_data():
-    # Puxamos dados do BTC para simular os níveis de liquidez
-    df = yf.download("BTC-USD", period="1mo", interval="1h")
-    return df
+    try:
+        # Puxamos dados do BTC
+        df = yf.download("BTC-USD", period="5d", interval="15m")
+        # Reset index para garantir que o tempo é tratado corretamente
+        df = df.reset_index()
+        # Flatten columns caso venham como MultiIndex
+        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+        return df
+    except:
+        return pd.DataFrame()
 
 df = get_liq_data()
 
 if not df.empty:
-    current_price = df['Close'].iloc[-1]
+    # Converter para float simples para evitar erros de array do Pandas
+    current_price = float(df['Close'].iloc[-1])
     
     st.title("Liquidation Heatmap | Order Flow Engine")
     
-    # 2. Lógica de Clusters (Simulação Institucional de Alavancagem)
-    # Calculamos onde estão os "stops" de 25x, 50x e 100x
-    leverages = {"100x": 0.01, "50x": 0.02, "25x": 0.04}
-    
-    short_liq_levels = []
-    long_liq_levels = []
-    
-    for label, margin in leverages.items():
-        long_liq_levels.append({'label': f'Longs {label}', 'price': current_price * (1 - margin), 'color': '#00E5FF'})
-        short_liq_levels.append({'label': f'Shorts {label}', 'price': current_price * (1 + margin), 'color': '#FF4B4B'})
-
-    # 3. Layout Lateral (Métricas Rápidas)
     col1, col2 = st.columns([3, 1])
 
     with col1:
-        # Gráfico de Heatmap
         fig = go.Figure()
 
-        # Preço Atual
-        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name="BTC Price", line=dict(color="white", width=2)))
+        # Preço Principal
+        fig.add_trace(go.Scatter(
+            x=df['Datetime'], y=df['Close'],
+            name="BTC Price", line=dict(color="white", width=2)
+        ))
 
-        # Adicionar Zonas de Liquidez (Heatmap)
-        for liq in long_liq_levels:
-            fig.add_hline(y=liq['price'], line_dash="dot", line_color=liq['color'], 
-                          annotation_text=liq['label'], annotation_position="bottom right")
-            fig.add_hrect(y0=liq['price']*0.998, y1=liq['price']*1.002, fillcolor=liq['color'], opacity=0.1, line_width=0)
+        # 2. Lógica de Níveis de Liquidação (Simulação Alpha)
+        leverages = [
+            {'label': '100x', 'margin': 0.01, 'alpha': 0.3},
+            {'label': '50x', 'margin': 0.02, 'alpha': 0.2},
+            {'label': '25x', 'margin': 0.04, 'alpha': 0.1}
+        ]
 
-        for liq in short_liq_levels:
-            fig.add_hline(y=liq['price'], line_dash="dot", line_color=liq['color'], 
-                          annotation_text=liq['label'], annotation_position="top right")
-            fig.add_hrect(y0=liq['price']*0.998, y1=liq['price']*1.002, fillcolor=liq['color'], opacity=0.1, line_width=0)
+        for lev in leverages:
+            # Longs (Suporte de Liquidez - Aqua)
+            long_p = current_price * (1 - lev['margin'])
+            fig.add_hline(y=long_p, line_dash="dot", line_color="#00E5FF", opacity=lev['alpha'])
+            
+            # Shorts (Resistência de Liquidez - AlphaRed)
+            short_p = current_price * (1 + lev['margin'])
+            fig.add_hline(y=short_p, line_dash="dot", line_color="#FF4B4B", opacity=lev['alpha'])
 
         fig.update_layout(
-            template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            height=600, margin=dict(l=0, r=0, t=20, b=0),
-            yaxis=dict(title="Liquidation Price (USD)", gridcolor="rgba(255,255,255,0.05)")
+            template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)", height=600,
+            yaxis=dict(gridcolor="rgba(255,255,255,0.05)", title="Price USD"),
+            xaxis=dict(showgrid=False)
         )
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
         st.markdown("### Liquidation Risk")
-        # Simulação de Proximidade (Qual lado vai quebrar primeiro?)
-        risk_val = 65 # Exemplo: 65% de chance de Long Liquidation
-        
-        fig_risk = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=risk_val,
-            gauge={
-                'axis': {'range': [0, 100]},
-                'bar': {'color': "#00E5FF" if risk_val < 50 else "#FF4B4B"},
-                'steps': [
-                    {'range': [0, 50], 'color': "rgba(0, 229, 255, 0.1)"},
-                    {'range': [50, 100], 'color': "rgba(255, 75, 75, 0.1)"}
-                ]
-            },
-            title={'text': "Pressure: Shorts" if risk_val < 50 else "Pressure: Longs"}
-        ))
-        fig_risk.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=300)
-        st.plotly_chart(fig_risk, use_container_width=True)
-
+        # Cálculo de pressão simplificado
+        st.metric("Current Price", f"${current_price:,.2f}")
         st.markdown("---")
-        st.markdown("### Key Clusters")
-        # Tabela com as tuas cores [cite: 2026-02-26]
-        all_levels = pd.DataFrame(long_liq_levels + short_liq_levels)
-        st.table(all_levels[['label', 'price']].style.format(precision=2))
+        
+        st.markdown("#### 🔥 Liquidation Clusters")
+        # Tabela visual rápida
+        data = {
+            "Level": ["100x Shorts", "50x Shorts", "50x Longs", "100x Longs"],
+            "Price": [current_price*1.01, current_price*1.02, current_price*0.98, current_price*0.99]
+        }
+        temp_df = pd.DataFrame(data)
+        st.dataframe(temp_df.style.format({"Price": "${:,.2f}"}), use_container_width=True, hide_index=True)
 
 else:
-    st.error("Engine Error: No Data Found")
-
-st.caption("Alpha Terminal | Estimated Liquidation Engine based on Price Momentum")
+    st.error("Engine Error: Falha ao carregar dados da Exchange.")

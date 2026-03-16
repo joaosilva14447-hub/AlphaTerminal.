@@ -98,18 +98,18 @@ if df is not None:
             )
         )
 
-        # Stylized arrow pointer (compact, inside the arc)
+        # Compact triangle pointer (inside arc, like reference)
         angle_deg = 180 - (selected_val / 100) * 180
         theta = math.radians(angle_deg)
         dx = math.cos(theta)
         dy = math.sin(theta)
         px = -dy
         py = dx
-        cx, cy = 0.5, 0.37
-        r_tip = 0.31
-        r_base = 0.27
-        r_tail = 0.23
-        head_w = 0.02
+
+        cx, cy = 0.5, 0.38
+        r_tip = 0.32
+        r_base = 0.29
+        head_w = 0.018
 
         tip_x = cx + dx * r_tip
         tip_y = cy + dy * r_tip
@@ -117,12 +117,8 @@ if df is not None:
         left_y = cy + dy * r_base + py * head_w
         right_x = cx + dx * r_base - px * head_w
         right_y = cy + dy * r_base - py * head_w
-        tail_x = cx + dx * r_tail
-        tail_y = cy + dy * r_tail
-        base_x = cx + dx * r_base
-        base_y = cy + dy * r_base
 
-        arrow_head_path = (
+        triangle_path = (
             f"M {tip_x},{tip_y} "
             f"L {left_x},{left_y} "
             f"L {right_x},{right_y} Z"
@@ -131,25 +127,14 @@ if df is not None:
         fig.update_layout(
             shapes=[
                 dict(
-                    type="line",
-                    xref="paper",
-                    yref="paper",
-                    x0=tail_x,
-                    y0=tail_y,
-                    x1=base_x,
-                    y1=base_y,
-                    line=dict(color=selected_state_color, width=4),
-                    layer="above",
-                ),
-                dict(
                     type="path",
-                    path=arrow_head_path,
+                    path=triangle_path,
                     xref="paper",
                     yref="paper",
                     fillcolor=selected_state_color,
                     line=dict(color=selected_state_color, width=1),
                     layer="above",
-                ),
+                )
             ]
         )
 
@@ -181,7 +166,6 @@ if df is not None:
     st.markdown("### Sentiment Historical (Last Months)")
 
     fig_hist = go.Figure()
-    # Base line for continuity (prevents visible gaps between colored segments)
     fig_hist.add_trace(
         go.Scatter(
             x=df_hist["timestamp"],
@@ -195,7 +179,6 @@ if df is not None:
     )
 
     legend_added = set()
-    # Draw per-interval colored segments (prevents visible breaks between states)
     for i in range(1, len(df_hist)):
         label = df_hist["state_label"].iloc[i]
         color = df_hist["state_color"].iloc[i]

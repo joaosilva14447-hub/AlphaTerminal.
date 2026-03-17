@@ -36,14 +36,19 @@ def get_fng_data(limit=365):
 
 
 def state_from_value(value: int):
-    # Bands ajustadas: Extreme Fear 0-24, Fear 25-44, Neutral 45-55, Greed 56-74, Extreme Greed 75-100
-    if value < 25:
+    # Faixas exatas pedidas:
+    # 0-25 Extreme Fear (verde)
+    # 26-40 Fear (verde)
+    # 41-59 Neutral (amarelo)
+    # 60-74 Greed (laranja)
+    # 75-100 Extreme Greed (vermelho)
+    if value <= 25:
         return "Extreme Fear", "#00E676"
-    if value < 45:
-        return "Fear", "#3CCB7F"
-    if value < 56:
+    if value <= 40:
+        return "Fear", "#00C853"
+    if value <= 59:
         return "Neutral", "#F5C84B"
-    if value < 75:
+    if value <= 74:
         return "Greed", "#FF7A45"
     return "Extreme Greed", "#FF3B30"
 
@@ -61,6 +66,7 @@ if df is not None:
     df_hist["state_label"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[0])
     df_hist["state_color"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[1])
 
+    # Use the most recent value as the active signal (no manual date selector)
     selected_row = df_hist.iloc[-1]
     selected_label = selected_row["date_label"]
     selected_val = current_val
@@ -87,10 +93,10 @@ if df is not None:
                     "bgcolor": "rgba(0,0,0,0)",
                     "steps": [
                         {"range": [0, 25], "color": "rgba(0, 230, 118, 0.22)"},
-                        {"range": [25, 45], "color": "rgba(60, 203, 127, 0.20)"},
-                        {"range": [45, 56], "color": "rgba(245, 200, 75, 0.18)"},
-                        {"range": [56, 75], "color": "rgba(255, 122, 69, 0.20)"},
-                        {"range": [75, 100], "color": "rgba(255, 59, 48, 0.22)"},
+                        {"range": [25, 40], "color": "rgba(0, 200, 83, 0.20)"},
+                        {"range": [40, 59], "color": "rgba(245, 200, 75, 0.18)"},
+                        {"range": [59, 74], "color": "rgba(255, 122, 69, 0.20)"},
+                        {"range": [74, 100], "color": "rgba(255, 59, 48, 0.22)"},
                     ],
                 },
             )
@@ -124,6 +130,7 @@ if df is not None:
     fig_hist = go.Figure()
     legend_added = set()
 
+    # Draw per-interval colored segments (no cuts)
     for i in range(1, len(df_hist)):
         label = df_hist["state_label"].iloc[i]
         color = df_hist["state_color"].iloc[i]
@@ -141,8 +148,8 @@ if df is not None:
         )
         legend_added.add(label)
 
-    # Only Extreme Greed markers
-    extreme_greed = df_hist[df_hist["value"] >= 80]
+    # Apenas marcadores de Extreme Greed (como está atualmente)
+    extreme_greed = df_hist[df_hist["value"] >= 75]
     fig_hist.add_trace(
         go.Scatter(
             x=extreme_greed["timestamp"],
@@ -153,11 +160,12 @@ if df is not None:
         )
     )
 
+    # Faixas de fundo com os novos limites
     fig_hist.add_hrect(y0=0, y1=25, fillcolor="rgba(0, 230, 118, 0.10)", line_width=0)
-    fig_hist.add_hrect(y0=25, y1=45, fillcolor="rgba(60, 203, 127, 0.08)", line_width=0)
-    fig_hist.add_hrect(y0=45, y1=56, fillcolor="rgba(245, 200, 75, 0.06)", line_width=0)
-    fig_hist.add_hrect(y0=56, y1=75, fillcolor="rgba(255, 122, 69, 0.08)", line_width=0)
-    fig_hist.add_hrect(y0=75, y1=100, fillcolor="rgba(255, 59, 48, 0.10)", line_width=0)
+    fig_hist.add_hrect(y0=25, y1=40, fillcolor="rgba(0, 200, 83, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=40, y1=59, fillcolor="rgba(245, 200, 75, 0.06)", line_width=0)
+    fig_hist.add_hrect(y0=59, y1=74, fillcolor="rgba(255, 122, 69, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=74, y1=100, fillcolor="rgba(255, 59, 48, 0.10)", line_width=0)
 
     fig_hist.add_vline(
         x=selected_row["timestamp"],

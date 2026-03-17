@@ -6,7 +6,7 @@ import pandas as pd
 # Standard AlphaTerminal Configuration
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
 
-# Custom CSS for Institutional Styling and Legend (Updated to remove triangle)
+# Custom CSS for Institutional Styling and Standardized Legend
 st.markdown(
     """
 <style>
@@ -19,15 +19,15 @@ st.markdown(
     }
     .stDataFrame { background-color: #161616; border-radius: 6px; }
     
-    /* Legend Styles - Standardized to lines only */
+    /* Legend Styles */
     .legend-container {
-        padding-top: 50px;
+        padding-top: 65px; /* Alinhamento vertical com o topo do gráfico */
         padding-left: 10px;
     }
     .legend-item {
         display: flex;
         align-items: center;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
         font-family: sans-serif;
         font-size: 13px;
         color: #C7D0DB;
@@ -55,7 +55,6 @@ def get_fng_data(limit=365):
         return None
 
 def state_from_value(value: int):
-    """Core mapping logic for score precision"""
     if value <= 25:
         return "Extreme Fear", "#00E676"
     elif value <= 40:
@@ -116,7 +115,7 @@ if df_hist is not None:
         history_table.columns = ["Date", "Score", "Classification"]
         st.dataframe(history_table.iloc[::-1].style.applymap(lambda v: f"color: {state_from_value(int(v))[1]}", subset=["Score"]), use_container_width=True, hide_index=True)
 
-    # --- BOTTOM ROW: CHART + STANDARDIZED LEGEND ---
+    # --- BOTTOM ROW: CHART + ORDERED LEGEND ---
     st.markdown("---")
     st.markdown("### Historical Sentiment Analysis")
 
@@ -154,12 +153,12 @@ if df_hist is not None:
 
     with legend_col:
         st.markdown('<div class="legend-container">', unsafe_allow_html=True)
-        # All items standardized as lines
+        # Ordered items (Extreme Fear -> Extreme Greed)
         legend_items = [
-            ("Fear", "#00C853"),
             ("Extreme Fear", "#00E676"),
-            ("Greed", "#FF7A45"),
+            ("Fear", "#00C853"),
             ("Neutral", "#F5C84B"),
+            ("Greed", "#FF7A45"),
             ("Extreme Greed", "#FF3B30")
         ]
         for label, color in legend_items:
@@ -172,4 +171,4 @@ if df_hist is not None:
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    st.error("API connection failed. Please check the data source.")
+    st.error("API connection failed.")

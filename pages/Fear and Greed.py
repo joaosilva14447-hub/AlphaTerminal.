@@ -143,18 +143,8 @@ if df is not None:
         )
         legend_added.add(label)
 
-    extreme_fear = df_hist[df_hist["value"] <= 20]
+    # Keep only Extreme Greed markers
     extreme_greed = df_hist[df_hist["value"] >= 80]
-
-    fig_hist.add_trace(
-        go.Scatter(
-            x=extreme_fear["timestamp"],
-            y=extreme_fear["value"],
-            mode="markers",
-            name="Extreme Fear",
-            marker=dict(color="#00E676", size=7, symbol="triangle-down"),
-        )
-    )
     fig_hist.add_trace(
         go.Scatter(
             x=extreme_greed["timestamp"],

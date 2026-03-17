@@ -38,14 +38,14 @@ def get_fng_data(limit=365):
 def state_from_value(value: int):
     # Official bands (Alternative.me): 0-24, 25-49, 50-54, 55-74, 75-100
     if value < 25:
-        return "Extreme Fear", "#FF3B30"
+        return "Extreme Fear", "#00E676"  
     if value < 50:
-        return "Fear", "#FF7A45"
+        return "Fear", "#3CCB7F"  
     if value < 55:
         return "Neutral", "#F5C84B"
     if value < 75:
-        return "Greed", "#3CCB7F"
-    return "Extreme Greed", "#00E676"
+        return "Greed", "#FF7A45"
+    return "Extreme Greed", "#FF3B30" 
 
 
 df = get_fng_data(limit=365)

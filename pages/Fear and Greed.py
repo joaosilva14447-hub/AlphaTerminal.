@@ -6,7 +6,7 @@ import pandas as pd
 # Standard AlphaTerminal Configuration
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
 
-# Custom CSS for Institutional Styling and Legend
+# Custom CSS for Institutional Styling and Legend (Updated to remove triangle)
 st.markdown(
     """
 <style>
@@ -19,7 +19,7 @@ st.markdown(
     }
     .stDataFrame { background-color: #161616; border-radius: 6px; }
     
-    /* Legend Styles */
+    /* Legend Styles - Standardized to lines only */
     .legend-container {
         padding-top: 50px;
         padding-left: 10px;
@@ -36,15 +36,6 @@ st.markdown(
         width: 25px;
         height: 2px;
         margin-right: 12px;
-    }
-    .legend-marker {
-        width: 0; 
-        height: 0; 
-        border-left: 5px solid transparent;
-        border-right: 5px solid transparent;
-        border-top: 8px solid #FF3B30;
-        margin-right: 12px;
-        margin-left: 7px;
     }
 </style>
 """,
@@ -64,6 +55,7 @@ def get_fng_data(limit=365):
         return None
 
 def state_from_value(value: int):
+    """Core mapping logic for score precision"""
     if value <= 25:
         return "Extreme Fear", "#00E676"
     elif value <= 40:
@@ -78,6 +70,7 @@ def state_from_value(value: int):
 df_hist = get_fng_data(limit=365)
 
 if df_hist is not None:
+    # Data Preparation
     df_hist["details"] = df_hist["value"].apply(lambda v: state_from_value(int(v)))
     df_hist["state_label"] = df_hist["details"].apply(lambda x: x[0])
     df_hist["state_color"] = df_hist["details"].apply(lambda x: x[1])
@@ -93,6 +86,7 @@ if df_hist is not None:
 
     st.title("Fear & Greed Index | Institutional Terminal")
 
+    # --- TOP ROW: GAUGE & METRICS ---
     col1, col2 = st.columns([2, 1])
     with col1:
         fig_gauge = go.Figure(go.Indicator(
@@ -122,20 +116,22 @@ if df_hist is not None:
         history_table.columns = ["Date", "Score", "Classification"]
         st.dataframe(history_table.iloc[::-1].style.applymap(lambda v: f"color: {state_from_value(int(v))[1]}", subset=["Score"]), use_container_width=True, hide_index=True)
 
+    # --- BOTTOM ROW: CHART + STANDARDIZED LEGEND ---
     st.markdown("---")
     st.markdown("### Historical Sentiment Analysis")
 
-    # Layout for Chart + Legend
     chart_col, legend_col = st.columns([8, 1])
 
     with chart_col:
         fig_hist = go.Figure()
+        # Heatline segments
         for i in range(1, len(df_hist)):
             fig_hist.add_trace(go.Scatter(
                 x=df_hist["timestamp"].iloc[i-1:i+1], y=df_hist["value"].iloc[i-1:i+1],
                 mode="lines", line=dict(color=df_hist["state_color"].iloc[i], width=2.5),
                 hoverinfo="skip", showlegend=False
             ))
+        # Accuracy layer for hover
         fig_hist.add_trace(go.Scatter(
             x=df_hist["timestamp"], y=df_hist["value"],
             mode="markers", marker=dict(color="rgba(0,0,0,0)", size=7),
@@ -143,9 +139,11 @@ if df_hist is not None:
             hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Value: %{y}<br>State: %{customdata}<extra></extra>",
             name="Sentiment"
         ))
+        # Background zones
         zones = [(0, 25, "#00E676", 0.04), (25, 40, "#00C853", 0.04), (40, 59, "#F5C84B", 0.04), (59, 74, "#FF7A45", 0.04), (74, 100, "#FF3B30", 0.04)]
         for y0, y1, color, op in zones:
             fig_hist.add_hrect(y0=y0, y1=y1, fillcolor=color, opacity=op, line_width=0)
+        
         fig_hist.update_layout(
             template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             height=450, margin=dict(l=10, r=10, t=10, b=10),
@@ -156,6 +154,7 @@ if df_hist is not None:
 
     with legend_col:
         st.markdown('<div class="legend-container">', unsafe_allow_html=True)
+        # All items standardized as lines
         legend_items = [
             ("Fear", "#00C853"),
             ("Extreme Fear", "#00E676"),
@@ -164,9 +163,13 @@ if df_hist is not None:
             ("Extreme Greed", "#FF3B30")
         ]
         for label, color in legend_items:
-            st.markdown(f'<div class="legend-item"><div class="legend-line" style="background-color: {color};"></div>{label}</div>', unsafe_allow_html=True)
-        st.markdown('<div class="legend-item"><div class="legend-marker"></div>Extreme Fear</div>', unsafe_allow_html=True)
+            st.markdown(f'''
+                <div class="legend-item">
+                    <div class="legend-line" style="background-color: {color};"></div>
+                    {label}
+                </div>
+            ''', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    st.error("API connection failed.")
+    st.error("API connection failed. Please check the data source.")

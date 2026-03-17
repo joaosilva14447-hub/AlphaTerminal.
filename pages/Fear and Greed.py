@@ -36,12 +36,12 @@ def get_fng_data(limit=365):
 
 
 def state_from_value(value: int):
-    # Official bands (Alternative.me): 0-24, 25-49, 50-54, 55-74, 75-100
+    # Bands ajustadas: Extreme Fear 0-24, Fear 25-44, Neutral 45-55, Greed 56-74, Extreme Greed 75-100
     if value < 25:
         return "Extreme Fear", "#00E676"
-    if value < 50:
+    if value < 45:
         return "Fear", "#3CCB7F"
-    if value < 55:
+    if value < 56:
         return "Neutral", "#F5C84B"
     if value < 75:
         return "Greed", "#FF7A45"
@@ -88,9 +88,9 @@ if df is not None:
                     "bgcolor": "rgba(0,0,0,0)",
                     "steps": [
                         {"range": [0, 25], "color": "rgba(0, 230, 118, 0.22)"},
-                        {"range": [25, 50], "color": "rgba(60, 203, 127, 0.20)"},
-                        {"range": [50, 55], "color": "rgba(245, 200, 75, 0.18)"},
-                        {"range": [55, 75], "color": "rgba(255, 122, 69, 0.20)"},
+                        {"range": [25, 45], "color": "rgba(60, 203, 127, 0.20)"},
+                        {"range": [45, 56], "color": "rgba(245, 200, 75, 0.18)"},
+                        {"range": [56, 75], "color": "rgba(255, 122, 69, 0.20)"},
                         {"range": [75, 100], "color": "rgba(255, 59, 48, 0.22)"},
                     ],
                 },
@@ -156,9 +156,9 @@ if df is not None:
     )
 
     fig_hist.add_hrect(y0=0, y1=25, fillcolor="rgba(0, 230, 118, 0.10)", line_width=0)
-    fig_hist.add_hrect(y0=25, y1=50, fillcolor="rgba(60, 203, 127, 0.08)", line_width=0)
-    fig_hist.add_hrect(y0=50, y1=55, fillcolor="rgba(245, 200, 75, 0.06)", line_width=0)
-    fig_hist.add_hrect(y0=55, y1=75, fillcolor="rgba(255, 122, 69, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=25, y1=45, fillcolor="rgba(60, 203, 127, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=45, y1=56, fillcolor="rgba(245, 200, 75, 0.06)", line_width=0)
+    fig_hist.add_hrect(y0=56, y1=75, fillcolor="rgba(255, 122, 69, 0.08)", line_width=0)
     fig_hist.add_hrect(y0=75, y1=100, fillcolor="rgba(255, 59, 48, 0.10)", line_width=0)
 
     fig_hist.add_vline(

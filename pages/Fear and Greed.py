@@ -61,7 +61,6 @@ if df is not None:
     df_hist["state_label"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[0])
     df_hist["state_color"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[1])
 
-    # Use the most recent value as the active signal (no manual date selector)
     selected_row = df_hist.iloc[-1]
     selected_label = selected_row["date_label"]
     selected_val = current_val
@@ -125,7 +124,6 @@ if df is not None:
     fig_hist = go.Figure()
     legend_added = set()
 
-    # Draw per-interval colored segments (no cuts)
     for i in range(1, len(df_hist)):
         label = df_hist["state_label"].iloc[i]
         color = df_hist["state_color"].iloc[i]
@@ -143,7 +141,7 @@ if df is not None:
         )
         legend_added.add(label)
 
-    # Keep only Extreme Greed markers
+    # Only Extreme Greed markers
     extreme_greed = df_hist[df_hist["value"] >= 80]
     fig_hist.add_trace(
         go.Scatter(

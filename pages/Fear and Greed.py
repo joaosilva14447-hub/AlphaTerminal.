@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import plotly.graph_objects as go
 import pandas as pd
+import math
 
 # Configuracao Padrao AlphaTerminal
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
@@ -21,6 +22,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 @st.cache_data(ttl=3600)  # Cache de 1 hora
 def get_fng_data(limit=365):
     try:
@@ -33,17 +35,19 @@ def get_fng_data(limit=365):
     except Exception:
         return None
 
+
 def state_from_value(value: int):
     # Official bands (Alternative.me): 0-24, 25-49, 50-54, 55-74, 75-100
     if value < 25:
-        return "Extreme Fear", "#FF3B30"
+        return "Extreme Fear", "#00E676"
     if value < 50:
-        return "Fear", "#FF7A45"
+        return "Fear", "#3CCB7F"
     if value < 55:
         return "Neutral", "#F5C84B"
     if value < 75:
-        return "Greed", "#3CCB7F"
-    return "Extreme Greed", "#00E676"
+        return "Greed", "#FF7A45"
+    return "Extreme Greed", "#FF3B30"
+
 
 df = get_fng_data(limit=365)
 
@@ -58,22 +62,13 @@ if df is not None:
     df_hist["state_label"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[0])
     df_hist["state_color"] = df_hist["value"].apply(lambda v: state_from_value(int(v))[1])
 
-    selected_label = st.select_slider(
-        "VIEW DATE (select to update the gauge)",
-        options=df_hist["date_label"].tolist(),
-        value=df_hist["date_label"].iloc[-1],
-    )
-    selected_row = df_hist[df_hist["date_label"] == selected_label].iloc[-1]
-    selected_val = int(selected_row["value"])
-    selected_status = str(selected_row["value_classification"])
+    # Use the most recent value as the active signal (no manual date selector)
+    selected_row = df_hist.iloc[-1]
+    selected_label = selected_row["date_label"]
+    selected_val = current_val
+    selected_status = current_status
     selected_state_label, selected_state_color = state_from_value(selected_val)
-
-    selected_idx = df_hist.index.get_loc(selected_row.name)
-    if isinstance(selected_idx, slice):
-        selected_idx = selected_idx.start or 0
-    prev_idx = max(0, selected_idx - 1)
-    selected_prev = int(df_hist.iloc[prev_idx]["value"])
-    selected_delta = selected_val - selected_prev
+    selected_delta = current_delta
 
     st.title("Fear & Greed Index | Institutional Monitor")
 
@@ -93,15 +88,56 @@ if df is not None:
                     "bar": {"color": selected_state_color},
                     "bgcolor": "rgba(0,0,0,0)",
                     "steps": [
-                        {"range": [0, 25], "color": "rgba(255, 59, 48, 0.22)"},
-                        {"range": [25, 50], "color": "rgba(255, 122, 69, 0.20)"},
+                        {"range": [0, 25], "color": "rgba(0, 230, 118, 0.22)"},
+                        {"range": [25, 50], "color": "rgba(60, 203, 127, 0.20)"},
                         {"range": [50, 55], "color": "rgba(245, 200, 75, 0.18)"},
-                        {"range": [55, 75], "color": "rgba(60, 203, 127, 0.20)"},
-                        {"range": [75, 100], "color": "rgba(0, 230, 118, 0.22)"},
+                        {"range": [55, 75], "color": "rgba(255, 122, 69, 0.20)"},
+                        {"range": [75, 100], "color": "rgba(255, 59, 48, 0.22)"},
                     ],
                 },
             )
         )
+
+        # Compact triangle pointer (inside arc, like reference)
+        angle_deg = 180 - (selected_val / 100) * 180
+        theta = math.radians(angle_deg)
+        dx = math.cos(theta)
+        dy = math.sin(theta)
+        px = -dy
+        py = dx
+
+        cx, cy = 0.5, 0.38
+        r_tip = 0.32
+        r_base = 0.29
+        head_w = 0.018
+
+        tip_x = cx + dx * r_tip
+        tip_y = cy + dy * r_tip
+        left_x = cx + dx * r_base + px * head_w
+        left_y = cy + dy * r_base + py * head_w
+        right_x = cx + dx * r_base - px * head_w
+        right_y = cy + dy * r_base - py * head_w
+
+        triangle_path = (
+            f"M {tip_x},{tip_y} "
+            f"L {left_x},{left_y} "
+            f"L {right_x},{right_y} Z"
+        )
+
+        fig.update_layout(
+            shapes=[
+                dict(
+                    type="path",
+                    path=triangle_path,
+                    xref="paper",
+                    yref="paper",
+                    fillcolor=selected_state_color,
+                    line=dict(color=selected_state_color, width=1),
+                    layer="above",
+                )
+            ]
+        )
+
         fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=450)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -158,7 +194,7 @@ if df is not None:
             y=extreme_fear["value"],
             mode="markers",
             name="Extreme Fear",
-            marker=dict(color="#FF3B30", size=7, symbol="triangle-down"),
+            marker=dict(color="#00E676", size=7, symbol="triangle-down"),
         )
     )
     fig_hist.add_trace(
@@ -167,15 +203,15 @@ if df is not None:
             y=extreme_greed["value"],
             mode="markers",
             name="Extreme Greed",
-            marker=dict(color="#00E676", size=7, symbol="triangle-up"),
+            marker=dict(color="#FF3B30", size=7, symbol="triangle-up"),
         )
     )
 
-    fig_hist.add_hrect(y0=0, y1=25, fillcolor="rgba(255, 59, 48, 0.10)", line_width=0)
-    fig_hist.add_hrect(y0=25, y1=50, fillcolor="rgba(255, 122, 69, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=0, y1=25, fillcolor="rgba(0, 230, 118, 0.10)", line_width=0)
+    fig_hist.add_hrect(y0=25, y1=50, fillcolor="rgba(60, 203, 127, 0.08)", line_width=0)
     fig_hist.add_hrect(y0=50, y1=55, fillcolor="rgba(245, 200, 75, 0.06)", line_width=0)
-    fig_hist.add_hrect(y0=55, y1=75, fillcolor="rgba(60, 203, 127, 0.08)", line_width=0)
-    fig_hist.add_hrect(y0=75, y1=100, fillcolor="rgba(0, 230, 118, 0.10)", line_width=0)
+    fig_hist.add_hrect(y0=55, y1=75, fillcolor="rgba(255, 122, 69, 0.08)", line_width=0)
+    fig_hist.add_hrect(y0=75, y1=100, fillcolor="rgba(255, 59, 48, 0.10)", line_width=0)
 
     fig_hist.add_vline(
         x=selected_row["timestamp"],

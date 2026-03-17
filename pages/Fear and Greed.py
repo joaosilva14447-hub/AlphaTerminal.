@@ -153,7 +153,17 @@ if df_hist is not None:
         
         for y0, y1, color, op in zones:
             fig_hist.add_hrect(y0=y0, y1=y1, fillcolor=color, opacity=op, line_width=0)
-        
+
+          )
+    fig_hist.add_trace(
+        go.Scatter(
+            x=[selected_row["timestamp"]],
+            y=[selected_val],
+            mode="markers",
+            name="Selected",
+            marker=dict(color=selected_state_color, size=9, symbol="circle"),
+            showlegend=False,
+            
         fig_hist.update_layout(
             template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             height=450, margin=dict(l=10, r=10, t=10, b=10),

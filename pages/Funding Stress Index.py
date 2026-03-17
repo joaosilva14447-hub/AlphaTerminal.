@@ -31,7 +31,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 BINANCE_FAPI = "https://fapi.binance.com"
 BYBIT_API = "https://api.bybit.com"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -67,29 +66,39 @@ def fetch_funding_series(exchange: str, symbol: str, points: int) -> FundingSeri
     symbol = symbol.strip().upper()
     points = int(points)
     points = max(20, min(1000, points))
+    fallback_to_bybit = False
 
     if exchange == "Binance (USD-M)":
-        rows = _get_json(f"{BINANCE_FAPI}/fapi/v1/fundingRate", {"symbol": symbol, "limit": points})
-        if not isinstance(rows, list) or not rows:
-            raise ApiError("No funding history returned.")
-
-        df = pd.DataFrame(rows)
-        df["ts_utc"] = pd.to_datetime(df["fundingTime"], unit="ms", utc=True, errors="coerce")
-        df["funding_pct"] = pd.to_numeric(df["fundingRate"], errors="coerce") * 100.0
-        df = df.dropna(subset=["ts_utc", "funding_pct"]).sort_values("ts_utc")
-        if df.empty:
-            raise ApiError("Funding history parsed to empty dataset.")
-
         try:
-            ticker = _get_json(f"{BINANCE_FAPI}/fapi/v1/ticker/price", {"symbol": symbol})
-            last_price = _parse_float(ticker.get("price") if isinstance(ticker, dict) else None)
-        except Exception:
-            last_price = None
+            rows = _get_json(f"{BINANCE_FAPI}/fapi/v1/fundingRate", {"symbol": symbol, "limit": points})
+            if not isinstance(rows, list) or not rows:
+                raise ApiError("No funding history returned.")
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            # 451 = Unavailable for Legal Reasons (regional restriction)
+            if status in (451, 403):
+                exchange = "Bybit (Linear)"
+                fallback_to_bybit = True
+            else:
+                raise
 
-        return FundingSeries(exchange="binance_usdm", symbol=symbol, df=df[["ts_utc", "funding_pct"]], last_price=last_price)
+        if exchange == "Binance (USD-M)":
+            df = pd.DataFrame(rows)
+            df["ts_utc"] = pd.to_datetime(df["fundingTime"], unit="ms", utc=True, errors="coerce")
+            df["funding_pct"] = pd.to_numeric(df["fundingRate"], errors="coerce") * 100.0
+            df = df.dropna(subset=["ts_utc", "funding_pct"]).sort_values("ts_utc")
+            if df.empty:
+                raise ApiError("Funding history parsed to empty dataset.")
+
+            try:
+                ticker = _get_json(f"{BINANCE_FAPI}/fapi/v1/ticker/price", {"symbol": symbol})
+                last_price = _parse_float(ticker.get("price") if isinstance(ticker, dict) else None)
+            except Exception:
+                last_price = None
+
+            return FundingSeries(exchange="binance_usdm", symbol=symbol, df=df[["ts_utc", "funding_pct"]], last_price=last_price)
 
     if exchange == "Bybit (Linear)":
-        # Bybit V5: /v5/market/funding/history returns up to 200 points per request.
         need = min(points, 200)
         payload = _get_json(
             f"{BYBIT_API}/v5/market/funding/history",
@@ -125,7 +134,8 @@ def fetch_funding_series(exchange: str, symbol: str, points: int) -> FundingSeri
         except Exception:
             last_price = None
 
-        return FundingSeries(exchange="bybit_linear", symbol=symbol, df=df[["ts_utc", "funding_pct"]], last_price=last_price)
+        exchange_label = "bybit_linear_fallback" if fallback_to_bybit else "bybit_linear"
+        return FundingSeries(exchange=exchange_label, symbol=symbol, df=df[["ts_utc", "funding_pct"]], last_price=last_price)
 
     raise ApiError(f"Unsupported exchange: {exchange}")
 
@@ -166,7 +176,6 @@ def persistence_count(z: pd.Series, threshold: float) -> tuple[int, str]:
 
 
 def stress_score(z_last: float, persistence: int) -> float:
-    # Simple: keep sign from z, grow magnitude with persistence (diminishing returns).
     return float(z_last) * (1.0 + math.log1p(max(0, int(persistence))))
 
 
@@ -191,6 +200,10 @@ except Exception as exc:
 
 df = fs.df.copy()
 df["z"] = funding_zscore(df["funding_pct"], window=window)
+
+fallback_used = fs.exchange == "bybit_linear_fallback"
+if fallback_used:
+    st.caption("Binance blocked (451/403). Using Bybit fallback data.")
 
 if exchange == "Bybit (Linear)" and points > 200:
     st.caption("Note: Bybit funding history endpoint returns up to 200 points per request; using the latest 200.")
@@ -226,7 +239,8 @@ d1, d2, d3, d4 = st.columns([1, 1, 1, 1])
 d1.metric("STRESS SCORE", f"{score:.2f}")
 d2.metric("CROWDING", crowd)
 d3.metric("LAST SETTLE (UTC)", last_ts.strftime("%Y-%m-%d %H:%M"))
-d4.metric("EXCHANGE", fs.exchange)
+exchange_display = "bybit_linear (fallback)" if fallback_used else fs.exchange
+d4.metric("EXCHANGE", exchange_display)
 
 fig = make_subplots(
     rows=2 if chart_mode == "Funding + Z-Score" else 1,

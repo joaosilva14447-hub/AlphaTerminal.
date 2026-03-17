@@ -102,10 +102,10 @@ if df_hist is not None:
                 "bgcolor": "rgba(255,255,255,0.05)",
                 "steps": [
                     {"range": [0, 25], "color": "rgba(0, 255, 170, 0.1)"},
-                    {"range": [26, 44], "color": "rgba(0, 204, 136, 0.08)"},
+                    {"range": [25, 45], "color": "rgba(0, 204, 136, 0.08)"},
                     {"range": [45, 55], "color": "rgba(255, 204, 0, 0.05)"},
-                    {"range": [56, 75], "color": "rgba(255, 102, 0, 0.08)"},
-                    {"range": [76, 100], "color": "rgba(255, 0, 0, 0.1)"},
+                    {"range": [55, 75], "color": "rgba(255, 102, 0, 0.08)"},
+                    {"range": [75, 100], "color": "rgba(255, 0, 0, 0.1)"},
                 ],
                 "threshold": {
                     "line": {"color": "white", "width": 4},
@@ -178,10 +178,10 @@ if df_hist is not None:
         # Background Zones (Brightness optimized for extremes)
         zones = [
             (0, 25, "#00FFAA", 0.15),
-            (26, 45, "#00CC88", 0.05),
-            (46, 55, "#FFCC00", 0.05),
-            (56, 75, "#FF6600", 0.05),
-            (76, 100, "#FF0000", 0.15)
+            (25, 45, "#00CC88", 0.05),
+            (45, 55, "#FFCC00", 0.05),
+            (55, 75, "#FF6600", 0.05),
+            (75, 100, "#FF0000", 0.15)
         ]
         
         for y0, y1, color, op in zones:

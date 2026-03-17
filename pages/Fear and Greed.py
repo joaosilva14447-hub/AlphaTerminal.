@@ -6,7 +6,7 @@ import pandas as pd
 # Standard AlphaTerminal Configuration
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
 
-# Custom CSS for Institutional Styling and Standardized Legend
+# Custom CSS for Institutional Styling and Uniform Legend
 st.markdown(
     """
 <style>
@@ -19,9 +19,9 @@ st.markdown(
     }
     .stDataFrame { background-color: #161616; border-radius: 6px; }
     
-    /* Legend Styles */
+    /* Legend Styles - Uniform thickness for all lines */
     .legend-container {
-        padding-top: 65px; /* Alinhamento vertical com o topo do gráfico */
+        padding-top: 65px;
         padding-left: 10px;
     }
     .legend-item {
@@ -34,8 +34,9 @@ st.markdown(
     }
     .legend-line {
         width: 25px;
-        height: 2px;
+        height: 2.5px; /* Espessura uniforme para todos os estados */
         margin-right: 12px;
+        border-radius: 1px;
     }
 </style>
 """,
@@ -55,6 +56,7 @@ def get_fng_data(limit=365):
         return None
 
 def state_from_value(value: int):
+    # Mapping logic for score precision
     if value <= 25:
         return "Extreme Fear", "#00E676"
     elif value <= 40:
@@ -115,7 +117,7 @@ if df_hist is not None:
         history_table.columns = ["Date", "Score", "Classification"]
         st.dataframe(history_table.iloc[::-1].style.applymap(lambda v: f"color: {state_from_value(int(v))[1]}", subset=["Score"]), use_container_width=True, hide_index=True)
 
-    # --- BOTTOM ROW: CHART + ORDERED LEGEND ---
+    # --- BOTTOM ROW: CHART + ORDERED UNIFORM LEGEND ---
     st.markdown("---")
     st.markdown("### Historical Sentiment Analysis")
 
@@ -123,14 +125,14 @@ if df_hist is not None:
 
     with chart_col:
         fig_hist = go.Figure()
-        # Heatline segments
+        # Segmented Heatline for visual accuracy
         for i in range(1, len(df_hist)):
             fig_hist.add_trace(go.Scatter(
                 x=df_hist["timestamp"].iloc[i-1:i+1], y=df_hist["value"].iloc[i-1:i+1],
                 mode="lines", line=dict(color=df_hist["state_color"].iloc[i], width=2.5),
                 hoverinfo="skip", showlegend=False
             ))
-        # Accuracy layer for hover
+        # Accuracy layer for hover consistency
         fig_hist.add_trace(go.Scatter(
             x=df_hist["timestamp"], y=df_hist["value"],
             mode="markers", marker=dict(color="rgba(0,0,0,0)", size=7),
@@ -138,7 +140,7 @@ if df_hist is not None:
             hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Value: %{y}<br>State: %{customdata}<extra></extra>",
             name="Sentiment"
         ))
-        # Background zones
+        # Visual zones
         zones = [(0, 25, "#00E676", 0.04), (25, 40, "#00C853", 0.04), (40, 59, "#F5C84B", 0.04), (59, 74, "#FF7A45", 0.04), (74, 100, "#FF3B30", 0.04)]
         for y0, y1, color, op in zones:
             fig_hist.add_hrect(y0=y0, y1=y1, fillcolor=color, opacity=op, line_width=0)
@@ -153,7 +155,7 @@ if df_hist is not None:
 
     with legend_col:
         st.markdown('<div class="legend-container">', unsafe_allow_html=True)
-        # Ordered items (Extreme Fear -> Extreme Greed)
+        # Correct Order: Extreme Fear -> Fear -> Neutral -> Greed -> Extreme Greed
         legend_items = [
             ("Extreme Fear", "#00E676"),
             ("Fear", "#00C853"),

@@ -117,7 +117,7 @@ if df_hist is not None:
         history_table.columns = ["Date", "Score", "Classification"]
         st.dataframe(history_table.iloc[::-1].style.applymap(lambda v: f"color: {state_from_value(int(v))[1]}", subset=["Score"]), use_container_width=True, hide_index=True)
 
-    # --- BOTTOM ROW: CHART + FIXED LEGEND ---
+    # --- BOTTOM ROW: CHART + UPDATED BRIGHTNESS ZONES ---
     st.markdown("---")
     st.markdown("### Historical Sentiment Analysis")
 
@@ -140,8 +140,17 @@ if df_hist is not None:
             hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Value: %{y}<br>State: %{customdata}<extra></extra>",
             name="Sentiment"
         ))
-        # Visual zones
-        zones = [(0, 25, "#00E676", 0.04), (25, 40, "#00C853", 0.04), (40, 59, "#F5C84B", 0.04), (59, 74, "#FF7A45", 0.04), (74, 100, "#FF3B30", 0.04)]
+        
+        # Define visual zones with increased brightness for extremes (0-25 and 76-100)
+        # We increase 'opacity' (the last number in the tuples) to make the colors brighter/more saturated.
+        zones = [
+            (0, 25, "#00E676", 0.2),    # Extreme Fear (Verde Brilhante - Opacidade Aumentada)
+            (25, 40, "#00C853", 0.04),  # Fear
+            (40, 59, "#F5C84B", 0.04),  # Neutral
+            (59, 74, "#FF7A45", 0.04),  # Greed
+            (74, 100, "#FF3B30", 0.2)   # Extreme Greed (Vermelho Brilhante - Opacidade Aumentada)
+        ]
+        
         for y0, y1, color, op in zones:
             fig_hist.add_hrect(y0=y0, y1=y1, fillcolor=color, opacity=op, line_width=0)
         
@@ -154,10 +163,8 @@ if df_hist is not None:
         st.plotly_chart(fig_hist, use_container_width=True)
 
     with legend_col:
-        # Abertura do container da legenda SEM o título "Sentiment"
+        # Ordered items with standardised line thicknesses
         st.markdown('<div class="legend-container">', unsafe_allow_html=True)
-        
-        # Lista de itens padronizada e ordenada
         legend_items = [
             ("Extreme Fear", "#00E676"),
             ("Fear", "#00C853"),
@@ -165,8 +172,6 @@ if df_hist is not None:
             ("Greed", "#FF7A45"),
             ("Extreme Greed", "#FF3B30")
         ]
-        
-        # Geração dos itens com a classe .legend-line (que agora tem espessura uniforme)
         for label, color in legend_items:
             st.markdown(f'''
                 <div class="legend-item">
@@ -174,9 +179,8 @@ if df_hist is not None:
                     {label}
                 </div>
             ''', unsafe_allow_html=True)
-            
-        # Fechamento do container
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
     st.error("API connection failed.")
+    

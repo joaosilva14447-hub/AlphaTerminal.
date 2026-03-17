@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import plotly.graph_objects as go
 import pandas as pd
-import math
 
 # Configuracao Padrao AlphaTerminal
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
@@ -97,47 +96,6 @@ if df is not None:
                 },
             )
         )
-
-        # Compact triangle pointer (inside arc, like reference)
-        angle_deg = 180 - (selected_val / 100) * 180
-        theta = math.radians(angle_deg)
-        dx = math.cos(theta)
-        dy = math.sin(theta)
-        px = -dy
-        py = dx
-
-        cx, cy = 0.5, 0.38
-        r_tip = 0.32
-        r_base = 0.29
-        head_w = 0.018
-
-        tip_x = cx + dx * r_tip
-        tip_y = cy + dy * r_tip
-        left_x = cx + dx * r_base + px * head_w
-        left_y = cy + dy * r_base + py * head_w
-        right_x = cx + dx * r_base - px * head_w
-        right_y = cy + dy * r_base - py * head_w
-
-        triangle_path = (
-            f"M {tip_x},{tip_y} "
-            f"L {left_x},{left_y} "
-            f"L {right_x},{right_y} Z"
-        )
-
-        fig.update_layout(
-            shapes=[
-                dict(
-                    type="path",
-                    path=triangle_path,
-                    xref="paper",
-                    yref="paper",
-                    fillcolor=selected_state_color,
-                    line=dict(color=selected_state_color, width=1),
-                    layer="above",
-                )
-            ]
-        )
-
         fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=450)
         st.plotly_chart(fig, use_container_width=True)
 

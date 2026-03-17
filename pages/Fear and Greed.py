@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 
 # Standard AlphaTerminal Configuration
-st.set_page_config(page_title="Fear & Greed Official | Institutional Terminal", layout="wide")
+st.set_page_config(page_title="Fear & Greed Official", layout="wide")
 
 # Custom CSS for Institutional Styling and Perfectly Uniform Legend
 st.markdown(
@@ -18,11 +18,11 @@ st.markdown(
         border-radius: 6px;
         border: 1px solid #2A2A2A;
     }
-    [data-testid="stMetricValue"] { font-size: 28px; color: #FFFFFF; }
+    .stDataFrame { background-color: #161616; border-radius: 6px; }
     
     /* Legend Styles - Uniform height for all 5 lines */
     .legend-container {
-        padding-top: 60px;
+        padding-top: 60px; /* Alinhamento vertical com o gráfico */
         padding-left: 20px;
     }
     .legend-item {
@@ -35,12 +35,10 @@ st.markdown(
     }
     .legend-line {
         width: 30px;
-        height: 2.5px;
+        height: 2.5px; /* Espessura padronizada para TODAS as linhas */
         margin-right: 12px;
         border-radius: 1px;
     }
-    /* Table Styling */
-    .stDataFrame { background-color: #161616; border-radius: 6px; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -59,17 +57,17 @@ def get_fng_data(limit=365):
         return None
 
 def state_from_value(value: int):
-    # Professional Palette: Aqua/AlphaBlue for Fear and Red/AlphaRed for Greed
+    # Mapping logic enforcing Alpha Institutional Palette
     if value <= 25:
-        return "Extreme Fear", "#00FFAA"  # Aqua
-    elif value <= 45:
-        return "Fear", "#00CC88"          # Deep Aqua
-    elif value <= 55:
-        return "Neutral", "#FFCC00"       # Gold
-    elif value <= 75:
-        return "Greed", "#FF6600"         # Orange
+        return "Extreme Fear", "#00FFAA"
+    elif value <= 40:
+        return "Fear", "#00CC88"
+    elif value <= 59:
+        return "Neutral", "#FFCC00"
+    elif value <= 74:
+        return "Greed", "#FF6600"
     else:
-        return "Extreme Greed", "#FF0000" # Red
+        return "Extreme Greed", "#FF0000"
 
 df_hist = get_fng_data(limit=365)
 
@@ -88,7 +86,7 @@ if df_hist is not None:
     selected_color = current_row["state_color"]
     selected_delta = selected_val - int(prev_row["value"])
 
-    st.title("Sentiment Terminal | Alpha-V6")
+    st.title("Fear & Greed Index | Institutional Terminal")
 
     # --- TOP ROW: GAUGE & METRICS ---
     col1, col2 = st.columns([2, 1])
@@ -97,45 +95,31 @@ if df_hist is not None:
             mode="gauge+number", value=selected_val,
             title={"text": f"{current_row['date_label']} | {selected_status}", "font": {"color": selected_color, "size": 22}},
             gauge={
-                "axis": {"range": [0, 100], "tickcolor": "white", "tickwidth": 1},
+                "axis": {"range": [0, 100], "tickcolor": "white"},
                 "bar": {"color": selected_color},
-                "bgcolor": "rgba(255,255,255,0.05)",
+                "bgcolor": "rgba(0,0,0,0)",
                 "steps": [
-                    {"range": [0, 25], "color": "rgba(0, 255, 170, 0.1)"},
-                    {"range": [25, 45], "color": "rgba(0, 204, 136, 0.08)"},
-                    {"range": [45, 55], "color": "rgba(255, 204, 0, 0.05)"},
-                    {"range": [55, 75], "color": "rgba(255, 102, 0, 0.08)"},
-                    {"range": [75, 100], "color": "rgba(255, 0, 0, 0.1)"},
+                    {"range": [0, 25], "color": "rgba(0, 255, 170, 0.15)"},
+                    {"range": [25, 40], "color": "rgba(0, 204, 136, 0.12)"},
+                    {"range": [40, 59], "color": "rgba(255, 204, 0, 0.1)"},
+                    {"range": [59, 74], "color": "rgba(255, 102, 0, 0.12)"},
+                    {"range": [74, 100], "color": "rgba(255, 0, 0, 0.15)"},
                 ],
-                "threshold": {
-                    "line": {"color": "white", "width": 4},
-                    "thickness": 0.75,
-                    "value": selected_val
-                }
             }
         ))
-        fig_gauge.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=400, margin=dict(t=80, b=20))
+        fig_gauge.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={"color": "white"}, height=400)
         st.plotly_chart(fig_gauge, use_container_width=True)
 
     with col2:
         st.markdown("### Sentiment Delta")
         st.metric(label="Current Score", value=f"{selected_val} pts", delta=selected_delta)
         st.markdown("---")
-        
-        # Recent History Table with logic consistent with previous indicators
         history_table = df_hist.tail(7)[["date_label", "value", "state_label"]].copy()
-        history_table.columns = ["Date", "Score", "State"]
-        
-        st.dataframe(
-            history_table.iloc[::-1].style.apply(
-                lambda x: [f"color: {state_from_value(int(v))[1]}" for v in x] if x.name == "Score" else ["" for _ in x], 
-                axis=0
-            ), 
-            use_container_width=True, 
-            hide_index=True
-        )
+        history_table.columns = ["Date", "Score", "Classification"]
+        # Updated to .map for newer pandas compatibility while maintaining exact logic
+        st.dataframe(history_table.iloc[::-1].style.map(lambda v: f"color: {state_from_value(int(v))[1]}", subset=["Score"]), use_container_width=True, hide_index=True)
 
-    # --- BOTTOM ROW: HISTORICAL CHART ---
+    # --- BOTTOM ROW: CHART + UPDATED BRIGHTNESS ZONES ---
     st.markdown("---")
     st.markdown("### Historical Sentiment Analysis")
 
@@ -143,63 +127,68 @@ if df_hist is not None:
 
     with chart_col:
         fig_hist = go.Figure()
-
-        # Fix: Segmented line drawing to avoid the ValueError with single-trace arrays
-        # This creates the multi-color effect safely
-        for i in range(1, len(df_hist)):
+        
+        # High-Performance Density Interpolation Logic
+        # Resamples to 2-hour intervals for sub-day threshold precision
+        df_dense = df_hist.set_index('timestamp').resample('2h').interpolate(method='linear').reset_index()
+        df_dense["state_color"] = df_dense["value"].apply(lambda v: state_from_value(int(v))[1])
+        
+        # Group points by consecutive colors to build unified segments (prevents plot crashing)
+        df_dense['color_block'] = (df_dense['state_color'] != df_dense['state_color'].shift()).cumsum()
+        
+        for block_id, group in df_dense.groupby('color_block'):
+            # Append the first row of the next segment to eliminate microscopic visual gaps
+            next_group = df_dense[df_dense['color_block'] == block_id + 1]
+            segment = pd.concat([group, next_group.head(1)]) if not next_group.empty else group
+            
             fig_hist.add_trace(go.Scatter(
-                x=df_hist["timestamp"].iloc[i-1:i+1], 
-                y=df_hist["value"].iloc[i-1:i+1],
-                mode="lines", 
-                line=dict(color=df_hist["state_color"].iloc[i], width=2),
-                hoverinfo="skip", 
-                showlegend=False
+                x=segment["timestamp"], y=segment["value"],
+                mode="lines", line=dict(color=group.iloc[0]["state_color"], width=2.5),
+                hoverinfo="skip", showlegend=False
             ))
 
-        # Tooltip and Interaction layer
+        # Accuracy layer for hover consistency (snapping to original data points only)
         fig_hist.add_trace(go.Scatter(
             x=df_hist["timestamp"], y=df_hist["value"],
-            mode="markers", marker=dict(color="rgba(0,0,0,0)", size=1),
+            mode="markers", marker=dict(color="rgba(0,0,0,0)", size=7),
             customdata=df_hist["state_label"],
             hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Value: %{y}<br>State: %{customdata}<extra></extra>",
             name="Sentiment"
         ))
 
-        # Current Signal Highlight
+        # Highlight current signal with a colored circle
         fig_hist.add_trace(go.Scatter(
             x=[current_row["timestamp"]],
             y=[current_row["value"]],
             mode="markers",
-            marker=dict(color=selected_color, size=12, line=dict(width=2, color='white')),
+            marker=dict(color=selected_color, size=10, symbol="circle"),
             showlegend=False,
-            hovertemplate="Current: %{y}<extra></extra>"
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Value: %{y}<br>State: "
+                          + selected_status + "<extra></extra>",
         ))
         
-        # Background Zones (Brightness optimized for extremes)
+        # Define visual zones mapped to Alpha Colors
         zones = [
-            (0, 25, "#00FFAA", 0.15),
-            (25, 45, "#00CC88", 0.05),
-            (45, 55, "#FFCC00", 0.05),
-            (55, 75, "#FF6600", 0.05),
-            (75, 100, "#FF0000", 0.15)
+            (0, 25, "#00FFAA", 0.2),
+            (25, 40, "#00CC88", 0.04),
+            (40, 59, "#FFCC00", 0.04),
+            (59, 74, "#FF6600", 0.04),
+            (74, 100, "#FF0000", 0.2)
         ]
         
         for y0, y1, color, op in zones:
             fig_hist.add_hrect(y0=y0, y1=y1, fillcolor=color, opacity=op, line_width=0)
         
         fig_hist.update_layout(
-            template="plotly_dark", 
-            paper_bgcolor="rgba(0,0,0,0)", 
-            plot_bgcolor="rgba(0,0,0,0)",
-            height=450, 
-            margin=dict(l=10, r=10, t=10, b=10),
-            xaxis=dict(showgrid=False, zeroline=False), 
-            yaxis=dict(range=[0, 100], showgrid=True, gridcolor="#222222", zeroline=False),
+            template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            height=450, margin=dict(l=10, r=10, t=10, b=10),
+            xaxis=dict(showgrid=False), yaxis=dict(range=[0, 100], showgrid=True, gridcolor="#222222"),
             hovermode="x unified"
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
     with legend_col:
+        # Ordered items reflecting standard alpha logic
         st.markdown('<div class="legend-container">', unsafe_allow_html=True)
         legend_items = [
             ("Extreme Fear", "#00FFAA"),
@@ -218,4 +207,4 @@ if df_hist is not None:
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:
-    st.error("Terminal Error: Could not fetch institutional sentiment data.")
+    st.error("API connection failed.")

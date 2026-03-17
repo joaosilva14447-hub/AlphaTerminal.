@@ -140,15 +140,25 @@ if df_hist is not None:
             hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Value: %{y}<br>State: %{customdata}<extra></extra>",
             name="Sentiment"
         ))
+
+        # Highlight current signal with a colored circle
+        fig_hist.add_trace(go.Scatter(
+            x=[current_row["timestamp"]],
+            y=[current_row["value"]],
+            mode="markers",
+            marker=dict(color=selected_color, size=10, symbol="circle"),
+            showlegend=False,
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Value: %{y}<br>State: "
+                          + selected_status + "<extra></extra>",
+        ))
         
         # Define visual zones with increased brightness for extremes (0-25 and 76-100)
-        # We increase 'opacity' (the last number in the tuples) to make the colors brighter/more saturated.
         zones = [
-            (0, 25, "#00E676", 0.2),    # Extreme Fear (Verde Brilhante - Opacidade Aumentada)
-            (25, 40, "#00C853", 0.04),  # Fear
-            (40, 59, "#F5C84B", 0.04),  # Neutral
-            (59, 74, "#FF7A45", 0.04),  # Greed
-            (74, 100, "#FF3B30", 0.2)   # Extreme Greed (Vermelho Brilhante - Opacidade Aumentada)
+            (0, 25, "#00E676", 0.2),
+            (25, 40, "#00C853", 0.04),
+            (40, 59, "#F5C84B", 0.04),
+            (59, 74, "#FF7A45", 0.04),
+            (74, 100, "#FF3B30", 0.2)
         ]
         
         for y0, y1, color, op in zones:

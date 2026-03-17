@@ -36,7 +36,7 @@ def get_fng_data(limit=365):
 
 
 def state_from_value(value: int):
-    # Faixas exatas pedidas:
+    # Faixas pedidas:
     # 0-25 Extreme Fear (verde)
     # 26-40 Fear (verde)
     # 41-59 Neutral (amarelo)
@@ -57,9 +57,10 @@ df = get_fng_data(limit=365)
 
 if df is not None:
     current_val = int(df.iloc[0]["value"])
-    current_status = str(df.iloc[0]["value_classification"])
     prev_val = int(df.iloc[1]["value"]) if len(df) > 1 else current_val
     current_delta = current_val - prev_val
+
+    current_status, current_color = state_from_value(current_val)
 
     df_hist = df.sort_values("timestamp").copy()
     df_hist["date_label"] = df_hist["timestamp"].dt.strftime("%Y-%m-%d")
@@ -70,8 +71,7 @@ if df is not None:
     selected_row = df_hist.iloc[-1]
     selected_label = selected_row["date_label"]
     selected_val = current_val
-    selected_status = current_status
-    selected_state_label, selected_state_color = state_from_value(selected_val)
+    selected_status, selected_state_color = state_from_value(selected_val)
     selected_delta = current_delta
 
     st.title("Fear & Greed Index | Institutional Monitor")
@@ -112,7 +112,10 @@ if df is not None:
         st.markdown("---")
         st.markdown("### Last 7 Days")
 
-        history_display = df[["timestamp", "value", "value_classification"]].head(7).copy()
+        history_display = df[["timestamp", "value"]].head(7).copy()
+        history_display["Classification"] = history_display["value"].apply(
+            lambda v: state_from_value(int(v))[0]
+        )
         history_display.columns = ["Date", "Value", "Classification"]
 
         def highlight_fng(val):

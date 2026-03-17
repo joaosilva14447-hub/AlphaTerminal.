@@ -34,7 +34,7 @@ def get_fng_data(limit=365):
         return None
 
 def state_from_value(value: int):
-    # Faixas de sentimentos e cores:
+    # Faixas pedidas:
     if value <= 25:
         return "Extreme Fear", "#00E676"
     elif value <= 40:
@@ -79,7 +79,7 @@ if df is not None:
                 mode="gauge+number",
                 value=selected_val,
                 title={
-                    "text": f" Sentiment on {selected_label}: {selected_status}",
+                    "text": f"Sentiment on {selected_label}: {selected_status}",
                     "font": {"color": selected_state_color, "size": 24},
                 },
                 gauge={
@@ -126,7 +126,7 @@ if df is not None:
 
     fig_hist = go.Figure()
 
-    # CAMADA 1: A linha de tendência contínua (Cinza)
+    # CAMADA 1: A linha de tendência contínua (Cinza) - MANTIDA IGUAL
     fig_hist.add_trace(
         go.Scatter(
             x=df_hist["timestamp"],
@@ -138,7 +138,8 @@ if df is not None:
         )
     )
 
-    # CAMADA 2: A trilha invisível de hover para precisão (Pontos coloridos)
+    # CAMADA 2: A trilha invisível de hover para precisão (Markers invisíveis) - MANTIDA IGUAL
+    # Pontos de cor sólida mas invisíveis para o hover funcionar em 'closest'
     fig_hist.add_trace(
         go.Scatter(
             x=df_hist["timestamp"],
@@ -147,7 +148,7 @@ if df is not None:
             marker=dict(
                 color=df_hist["state_color"],
                 size=4,
-                opacity=0.7,
+                opacity=0.01, # Praticamente invisível
                 line=dict(width=0)
             ),
             customdata=df_hist["state_label"],
@@ -156,21 +157,25 @@ if df is not None:
         )
     )
 
-    # CAMADA 3: O CÍRCULO DE DESTAQUE NO SINAL ATUAL
+    # CAMADA 3: O CÍRCULO DE DESTAQUE NO SINAL ATUAL - ADICIONADO
     # Adicionado como uma "shape" para ser um círculo perfeito nas coordenadas exatas.
+    # O xref="x" yref="y" diz para Plotly usar os eixos de dados, não pixels.
+    # Eu removi o add_vline (linha vertical) e adicionei este círculo.
     fig_hist.add_shape(
         type="circle",
         xref="x", yref="y",
+        # Nós criamos um círculo definindo o retângulo que o envolve: x0,y0 a x1,y1
+        # selected_val - 2 para dar uma pequena altura vertical
         x0=current_row["timestamp"] - pd.Timedelta(days=1), # Ajuste do tamanho horizontal
         y0=selected_val - 2, # Ajuste do tamanho vertical
         x1=current_row["timestamp"] + pd.Timedelta(days=1),
         y1=selected_val + 2,
         line=dict(color=selected_state_color, width=3),
-        fillcolor="rgba(0,0,0,0)", # Círculo oco
+        fillcolor="rgba(0,0,0,0)", # Círculo oco (sem preenchimento)
         name="Current Signal"
     )
 
-    # ZONAS DE FUNDO
+    # ZONAS DE FUNDO - MANTIDAS IGUAIS
     zones = [
         (0, 25, "#00E676", 0.05),
         (25, 40, "#00C853", 0.05),

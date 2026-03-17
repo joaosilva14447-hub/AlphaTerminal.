@@ -19,9 +19,8 @@ st.markdown(
     }
     .stDataFrame { background-color: #161616; border-radius: 6px; }
     
-    /* Legend Styles - Uniform height for all 5 lines */
     .legend-container {
-        padding-top: 60px; /* Alinhamento vertical com o gráfico */
+        padding-top: 60px;
         padding-left: 20px;
     }
     .legend-item {
@@ -34,7 +33,7 @@ st.markdown(
     }
     .legend-line {
         width: 30px;
-        height: 2.5px; /* Espessura padronizada para TODAS as linhas */
+        height: 2.5px;
         margin-right: 12px;
         border-radius: 1px;
     }
@@ -56,43 +55,29 @@ def get_fng_data(limit=365):
         return None
 
 def state_from_value(value: int):
-    # Mapping logic for score precision
-    if value <= 25:
-        return "Extreme Fear", "#00E676"
-    elif value <= 40:
-        return "Fear", "#00C853"
-    elif value <= 59:
-        return "Neutral", "#F5C84B"
-    elif value <= 74:
-        return "Greed", "#FF7A45"
-    else:
-        return "Extreme Greed", "#FF3B30"
+    if value <= 25: return "Extreme Fear", "#00E676"
+    elif value <= 40: return "Fear", "#00C853"
+    elif value <= 59: return "Neutral", "#F5C84B"
+    elif value <= 74: return "Greed", "#FF7A45"
+    else: return "Extreme Greed", "#FF3B30"
 
 df_hist = get_fng_data(limit=365)
 
 if df_hist is not None:
-    # Data Preparation
-    df_hist["details"] = df_hist["value"].apply(lambda v: state_from_value(int(v)))
-    df_hist["state_label"] = df_hist["details"].apply(lambda x: x[0])
-    df_hist["state_color"] = df_hist["details"].apply(lambda x: x[1])
-    df_hist["date_label"] = df_hist["timestamp"].dt.strftime("%Y-%m-%d")
-
     current_row = df_hist.iloc[-1]
     prev_row = df_hist.iloc[-2] if len(df_hist) > 1 else current_row
     
     selected_val = int(current_row["value"])
-    selected_status = current_row["state_label"]
-    selected_color = current_row["state_color"]
+    selected_status, selected_color = state_from_value(selected_val)
     selected_delta = selected_val - int(prev_row["value"])
 
     st.title("Fear & Greed Index | Institutional Terminal")
 
-    # --- TOP ROW: GAUGE & METRICS ---
     col1, col2 = st.columns([2, 1])
     with col1:
         fig_gauge = go.Figure(go.Indicator(
             mode="gauge+number", value=selected_val,
-            title={"text": f"{current_row['date_label']} | {selected_status}", "font": {"color": selected_color, "size": 22}},
+            title={"text": f"{current_row['timestamp'].strftime('%Y-%m-%d')} | {selected_status}", "font": {"color": selected_color, "size": 22}},
             gauge={
                 "axis": {"range": [0, 100], "tickcolor": "white"},
                 "bar": {"color": selected_color},
@@ -113,54 +98,60 @@ if df_hist is not None:
         st.markdown("### Sentiment Delta")
         st.metric(label="Current Score", value=f"{selected_val} pts", delta=selected_delta)
         st.markdown("---")
-        history_table = df_hist.tail(7)[["date_label", "value", "state_label"]].copy()
-        history_table.columns = ["Date", "Score", "Classification"]
-        st.dataframe(history_table.iloc[::-1].style.applymap(lambda v: f"color: {state_from_value(int(v))[1]}", subset=["Score"]), use_container_width=True, hide_index=True)
+        history_table = df_hist.tail(7)[["timestamp", "value"]].copy()
+        history_table["date"] = history_table["timestamp"].dt.strftime("%Y-%m-%d")
+        history_table["Classification"] = history_table["value"].apply(lambda x: state_from_value(x)[0])
+        st.dataframe(history_table[["date", "value", "Classification"]].iloc[::-1], use_container_width=True, hide_index=True)
 
-    # --- BOTTOM ROW: CHART + UPDATED BRIGHTNESS ZONES ---
     st.markdown("---")
     st.markdown("### Historical Sentiment Analysis")
 
     chart_col, legend_col = st.columns([8, 1])
 
     with chart_col:
+        # Escala técnica para garantir que a linha mude de cor nos níveis exatos
+        technical_colorscale = [
+            [0.0, "#00E676"], [0.25, "#00E676"],
+            [0.25, "#00C853"], [0.40, "#00C853"],
+            [0.40, "#F5C84B"], [0.59, "#F5C84B"],
+            [0.59, "#FF7A45"], [0.74, "#FF7A45"],
+            [0.74, "#FF3B30"], [1.0, "#FF3B30"]
+        ]
+
         fig_hist = go.Figure()
-        # Segmented Heatline for visual accuracy
-        for i in range(1, len(df_hist)):
-            fig_hist.add_trace(go.Scatter(
-                x=df_hist["timestamp"].iloc[i-1:i+1], y=df_hist["value"].iloc[i-1:i+1],
-                mode="lines", line=dict(color=df_hist["state_color"].iloc[i], width=2.5),
-                hoverinfo="skip", showlegend=False
-            ))
-        # Accuracy layer for hover consistency
+
+        # Trace única com gradiente baseado no valor Y (Respeita os níveis no cruzamento)
         fig_hist.add_trace(go.Scatter(
-            x=df_hist["timestamp"], y=df_hist["value"],
-            mode="markers", marker=dict(color="rgba(0,0,0,0)", size=7),
-            customdata=df_hist["state_label"],
+            x=df_hist["timestamp"], 
+            y=df_hist["value"],
+            mode="lines",
+            line=dict(
+                width=2.5,
+                color=df_hist["value"],
+                colorscale=technical_colorscale,
+                # 'linear' garante que a interpolação siga o gradiente nos eixos
+            ),
+            customdata=df_hist["value"].apply(lambda x: state_from_value(x)[0]),
             hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Value: %{y}<br>State: %{customdata}<extra></extra>",
             name="Sentiment"
         ))
 
-        # Highlight current signal with a colored circle
+        # Highlight current signal with a solid circle
         fig_hist.add_trace(go.Scatter(
             x=[current_row["timestamp"]],
-            y=[current_row["value"]],
+            y=[selected_val],
             mode="markers",
-            marker=dict(color=selected_color, size=10, symbol="circle"),
+            marker=dict(color=selected_color, size=12, line=dict(color='white', width=1)),
             showlegend=False,
-            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>Value: %{y}<br>State: "
-                          + selected_status + "<extra></extra>",
+            hoverinfo="skip"
         ))
         
-        # Define visual zones with increased brightness for extremes (0-25 and 76-100)
+        # Zonas de fundo
         zones = [
-            (0, 25, "#00E676", 0.2),
-            (25, 40, "#00C853", 0.04),
-            (40, 59, "#F5C84B", 0.04),
-            (59, 74, "#FF7A45", 0.04),
+            (0, 25, "#00E676", 0.2), (25, 40, "#00C853", 0.04),
+            (40, 59, "#F5C84B", 0.04), (59, 74, "#FF7A45", 0.04),
             (74, 100, "#FF3B30", 0.2)
         ]
-        
         for y0, y1, color, op in zones:
             fig_hist.add_hrect(y0=y0, y1=y1, fillcolor=color, opacity=op, line_width=0)
         
@@ -173,13 +164,10 @@ if df_hist is not None:
         st.plotly_chart(fig_hist, use_container_width=True)
 
     with legend_col:
-        # Ordered items with standardised line thicknesses
         st.markdown('<div class="legend-container">', unsafe_allow_html=True)
         legend_items = [
-            ("Extreme Fear", "#00E676"),
-            ("Fear", "#00C853"),
-            ("Neutral", "#F5C84B"),
-            ("Greed", "#FF7A45"),
+            ("Extreme Fear", "#00E676"), ("Fear", "#00C853"),
+            ("Neutral", "#F5C84B"), ("Greed", "#FF7A45"),
             ("Extreme Greed", "#FF3B30")
         ]
         for label, color in legend_items:

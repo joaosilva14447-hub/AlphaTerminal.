@@ -6,7 +6,7 @@ import pandas as pd
 # Standard AlphaTerminal Configuration
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
 
-# Custom CSS for Institutional Styling and Uniform Legend
+# Custom CSS for Institutional Styling and Perfectly Uniform Legend
 st.markdown(
     """
 <style>
@@ -19,22 +19,22 @@ st.markdown(
     }
     .stDataFrame { background-color: #161616; border-radius: 6px; }
     
-    /* Legend Styles - Uniform thickness for all lines */
+    /* Legend Styles - Uniform height for all 5 lines */
     .legend-container {
-        padding-top: 65px;
-        padding-left: 10px;
+        padding-top: 60px; /* Alinhamento vertical com o gráfico */
+        padding-left: 20px;
     }
     .legend-item {
         display: flex;
         align-items: center;
         margin-bottom: 12px;
-        font-family: sans-serif;
-        font-size: 13px;
+        font-family: 'Inter', sans-serif;
+        font-size: 14px;
         color: #C7D0DB;
     }
     .legend-line {
-        width: 25px;
-        height: 2.5px; /* Espessura uniforme para todos os estados */
+        width: 30px;
+        height: 2.5px; /* Espessura padronizada para TODAS as linhas */
         margin-right: 12px;
         border-radius: 1px;
     }
@@ -117,7 +117,7 @@ if df_hist is not None:
         history_table.columns = ["Date", "Score", "Classification"]
         st.dataframe(history_table.iloc[::-1].style.applymap(lambda v: f"color: {state_from_value(int(v))[1]}", subset=["Score"]), use_container_width=True, hide_index=True)
 
-    # --- BOTTOM ROW: CHART + ORDERED UNIFORM LEGEND ---
+    # --- BOTTOM ROW: CHART + FIXED LEGEND ---
     st.markdown("---")
     st.markdown("### Historical Sentiment Analysis")
 
@@ -154,8 +154,10 @@ if df_hist is not None:
         st.plotly_chart(fig_hist, use_container_width=True)
 
     with legend_col:
+        # Abertura do container da legenda SEM o título "Sentiment"
         st.markdown('<div class="legend-container">', unsafe_allow_html=True)
-        # Correct Order: Extreme Fear -> Fear -> Neutral -> Greed -> Extreme Greed
+        
+        # Lista de itens padronizada e ordenada
         legend_items = [
             ("Extreme Fear", "#00E676"),
             ("Fear", "#00C853"),
@@ -163,6 +165,8 @@ if df_hist is not None:
             ("Greed", "#FF7A45"),
             ("Extreme Greed", "#FF3B30")
         ]
+        
+        # Geração dos itens com a classe .legend-line (que agora tem espessura uniforme)
         for label, color in legend_items:
             st.markdown(f'''
                 <div class="legend-item">
@@ -170,6 +174,8 @@ if df_hist is not None:
                     {label}
                 </div>
             ''', unsafe_allow_html=True)
+            
+        # Fechamento do container
         st.markdown('</div>', unsafe_allow_html=True)
 
 else:

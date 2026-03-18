@@ -3,31 +3,56 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
-# 1. Configuração de Estética Alpha
-st.set_page_config(page_title="Alpha Sentinel Terminal", layout="wide")
+# 1. Configuração de Estética e Layout
+st.set_page_config(page_title="Alpha Sentinel Terminal v2.1", layout="wide")
+
 st.markdown("""
     <style>
-    .main { background-color: #000000; }
-    .stMetric { background-color: #0e1117; padding: 15px; border-radius: 10px; border: 1px solid #3D5AFE; }
+    .main { background-color: #05070a; }
+    .stMetric { 
+        background-color: #0e1117; 
+        padding: 20px; 
+        border-radius: 12px; 
+        border: 1px solid #1e293b;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    div[data-testid="stExpander"] { border: none !important; }
+    .sector-box {
+        padding: 10px;
+        border-radius: 8px;
+        text-align: center;
+        margin-top: 10px;
+        font-weight: bold;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-class AlphaEngine:
+class AlphaTerminalEngine:
     @staticmethod
-    def get_data(ticker):
-        data = yf.download(ticker, period="60d", interval="1d", progress=False, auto_adjust=True)
-        if isinstance(data.columns, pd.MultiIndex): data.columns = data.columns.get_level_values(0)
-        return data
+    def get_clean_data(ticker, days=60):
+        try:
+            data = yf.download(ticker, period=f"{days}d", interval="1d", progress=False, auto_adjust=True)
+            if data.empty: return None
+            # Fix para MultiIndex do yfinance 2026
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(0)
+            return data
+        except Exception:
+            return None
 
     @staticmethod
-    def calculate_alpha_matrix(df):
-        if len(df) < 35: return None
-        close, vol = df['Close'], df['Volume']
+    def calculate_metrics(df, sector_df):
+        if df is None or len(df) < 35: return None
         
-        # Lógica Alpha Matrix
+        close = df['Close']
+        vol = df['Volume']
+        
+        # --- Alpha Matrix Core ---
         roc = close.pct_change(14)
-        vol_weight = np.clip(vol / vol.rolling(20).mean(), 0.35, 2.5)
+        vol_avg = vol.rolling(20).mean()
+        vol_weight = np.clip(vol / vol_avg, 0.35, 2.5)
         mom_core = (roc * vol_weight).ewm(span=5).mean()
         
         delta = mom_core.diff()
@@ -36,61 +61,116 @@ class AlphaEngine:
         rs = gain / loss.replace(0, np.nan)
         matrix_series = 100 - (100 / (1 + rs))
         
-        # Bull Score Logic (Simplificada para Python)
-        score = 0
-        if matrix_series.iloc[-1] < 30: score += 1
-        if close.iloc[-1] > close.rolling(50).mean().iloc[-1]: score += 1
-        if vol.iloc[-1] > vol.rolling(20).mean().iloc[-1]: score += 1
-        if matrix_series.iloc[-1] > matrix_series.iloc[-2]: score += 1
+        # --- Sector Edge (Relative Strength) ---
+        asset_perf = (close.iloc[-1] / close.iloc[-5]) - 1
+        sector_perf = (sector_df['Close'].iloc[-1] / sector_df['Close'].iloc[-5]) - 1
+        relative_strength = (asset_perf - sector_perf) * 100
         
-        return matrix_series, score
+        # --- Bull Score 0/4 ---
+        score = 0
+        curr_mom = float(matrix_series.iloc[-1])
+        prev_mom = float(matrix_series.iloc[-2])
+        
+        if curr_mom < 30: score += 1 # Oversold
+        if curr_mom > prev_mom: score += 1 # Hook Up
+        if float(close.iloc[-1]) > float(close.rolling(20).mean().iloc[-1]): score += 1 # Trend
+        if float(vol.iloc[-1]) > float(vol_avg.iloc[-1]): score += 1 # Vol Confirmation
+        
+        return {
+            "series": matrix_series,
+            "current_mom": round(curr_mom, 1),
+            "score": score,
+            "relative_strength": round(relative_strength, 2),
+            "is_hook_up": curr_mom < 35 and curr_mom > prev_mom,
+            "is_hook_down": curr_mom > 65 and curr_mom < prev_mom
+        }
 
-def create_chart(series, ticker):
+def draw_alpha_chart(series, ticker):
     fig = go.Figure()
-    # Adicionar a Onda de Momentum
-    fig.add_trace(go.Scatter(y=series, mode='lines', line=dict(color='#09DBB5', width=3), fill='tozeroy', fillcolor='rgba(9, 219, 181, 0.1)'))
-    # Linhas de Limite
-    fig.add_hline(y=70, line_dash="dash", line_color="#FF0000", opacity=0.5)
-    fig.add_hline(y=30, line_dash="dash", line_color="#00FFAA", opacity=0.5)
+    # Gradient Fill Style
+    fig.add_trace(go.Scatter(
+        y=series, mode='lines', 
+        line=dict(color='#00f2ff', width=3),
+        fill='tozeroy',
+        fillcolor='rgba(0, 242, 255, 0.05)',
+        name="Momentum"
+    ))
+    # Thresholds
+    fig.add_hline(y=70, line_dash="dot", line_color="#ff4b4b", opacity=0.3)
+    fig.add_hline(y=30, line_dash="dot", line_color="#00ffaa", opacity=0.3)
     
     fig.update_layout(
-        height=250, margin=dict(l=0, r=0, t=30, b=0),
+        height=300, margin=dict(l=10, r=10, t=40, b=10),
         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-        yaxis=dict(range=[0, 100], showgrid=False, color="gray"),
+        yaxis=dict(range=[0, 100], color="#64748b", gridcolor="#1e293b"),
         xaxis=dict(showgrid=False, showticklabels=False),
-        title=f"𝓜𝓸𝓶𝓮𝓷𝓽𝓾𝓶: {ticker}", title_font_color="#3D5AFE"
+        title=dict(text=f"𝓥𝓮𝓵𝓸𝓬𝓲𝓽𝔂 𝓒𝓱𝓪𝓻𝓽: {ticker}", font=dict(size=16, color="#e2e8f0"))
     )
     return fig
 
-# --- UI EXECUTION ---
-st.title("✦ 𝓐𝓵𝓹𝓱𝓪 𝓢𝓮𝓷𝓽𝓲𝓷𝓮𝓵 𝓣𝓮𝓻𝓶𝓲𝓷𝓪𝓵 𝓿2.0 ✦")
+# --- Dashboad Start ---
+st.title("✦ 𝓐𝓵𝓹𝓱𝓪 𝓢𝓮𝓷𝓽𝓲𝓷𝓮𝓵 𝓣𝓮𝓻𝓶𝓲𝓷𝓪𝓵 𝓿2.1 ✦")
+st.markdown("---")
 
-tickers = ["GEV", "MU", "BTC-USD", "NVDA", "GC=F"]
-tabs = st.tabs([f"   {t}   " for t in tickers])
+# Mapeamento de Ativos e Seus Setores (Benchmarks)
+# GEV -> XLU (Utilities), MU/NVDA -> SOXX (Semis), BTC -> QQQ (Nasdaq)
+portfolio = {
+    "GEV": "XLU",
+    "MU": "SOXX",
+    "NVDA": "SOXX",
+    "BTC-USD": "QQQ",
+    "GC=F": "UUP" # Ouro vs Dólar
+}
 
-for i, ticker in enumerate(tickers):
+tabs = st.tabs([f"   {t}   " for t in portfolio.keys()])
+
+for i, (ticker, sector) in enumerate(portfolio.items()):
     with tabs[i]:
-        df = AlphaEngine.get_data(ticker)
-        matrix_series, bull_score = AlphaEngine.calculate_alpha_matrix(df)
+        # Ingestão de Dados
+        asset_data = AlphaTerminalEngine.get_clean_data(ticker)
+        sector_data = AlphaTerminalEngine.get_clean_data(sector)
         
-        if matrix_series is not None:
-            col1, col2 = st.columns([1, 3])
+        metrics = AlphaTerminalEngine.calculate_metrics(asset_data, sector_data)
+        
+        if metrics:
+            col_info, col_chart = st.columns([1, 2.5])
             
-            with col1:
-                curr_val = round(matrix_series.iloc[-1], 1)
-                st.metric("𝓜𝓪𝓽𝓻𝓲𝔁 𝓥𝓪𝓵𝓾𝓮", curr_val, delta=f"{bull_score}/4 Bull Score")
+            with col_info:
+                # 1. Card Principal
+                st.metric(
+                    label="𝓜𝓪𝓽𝓻𝓲𝔁 𝓥𝓪𝓵𝓾𝓮", 
+                    value=metrics["current_mom"], 
+                    delta=f"{metrics['score']}/4 Bull Score"
+                )
                 
-                # Status de Execução
-                if curr_val < 30 and matrix_series.iloc[-1] > matrix_series.iloc[-2]:
-                    st.success("🎯 𝓢𝓽𝓻𝓸𝓷𝓰 𝓑𝓾𝔂")
-                elif curr_val > 70:
-                    st.error("⚠️ 𝓣𝓪𝓴𝓮 𝓟𝓻𝓸𝓯𝓲𝓽")
+                # 2. Sector Edge Display
+                rsc = metrics["relative_strength"]
+                rsc_color = "#00ffaa" if rsc > 0 else "#ff4b4b"
+                st.markdown(f"""
+                    <div class="sector-box" style="border: 1px solid {rsc_color}; color: {rsc_color};">
+                        𝓢𝓮𝓬𝓽𝓸𝓻 𝓔𝓭𝓰𝓮: {rsc}% vs {sector}
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # 3. Veredito Alpha
+                if metrics["is_hook_up"] and rsc > -1:
+                    st.success("🎯 𝓢𝓣𝓡𝓞𝓝𝓖 𝓑𝓤𝓨 (𝓒𝓸𝓷𝓯𝓲𝓻𝓶𝓮𝓭)")
+                elif metrics["is_hook_down"]:
+                    st.error("⚠️ 𝓣𝓐𝓚𝓔 𝓟𝓡𝓞𝓕𝓘𝓣")
                 else:
-                    st.info("⌛ 𝓢𝓽𝓪𝓷𝓭𝓫𝔂")
+                    st.info("⌛ 𝓢𝓣𝓐𝓝𝓓𝓑𝓨 (𝓝𝓸 𝓢𝓲𝓰𝓷𝓪𝓵)")
                 
-                st.write(f"Volume: {'Institucional' if df['Volume'].iloc[-1] > df['Volume'].rolling(20).mean().iloc[-1] else 'Retail'}")
+                # Detalhes extra de Alpha
+                with st.expander("Ver Detalhes Quantitativos"):
+                    st.write(f"Trend: {'Bullish' if metrics['score'] >= 2 else 'Bearish'}")
+                    st.write(f"Volume vs Avg: {round(float(asset_data['Volume'].iloc[-1]/asset_data['Volume'].rolling(20).mean().iloc[-1]), 2)}x")
 
-            with col2:
-                st.plotly_chart(create_chart(matrix_series, ticker), use_container_width=True)
+            with col_chart:
+                st.plotly_chart(draw_alpha_chart(metrics["series"], ticker), use_container_width=True)
         else:
-            st.warning("Carregando fluxo de dados...")
+            st.error(f"Erro ao sincronizar dados para {ticker}. Verifica a ligação à API.")
+
+st.markdown("---")
+st.caption("Alpha Sentinel Terminal | v2.1 Quantitative Engine | Developed for High-Frequency Analysis")

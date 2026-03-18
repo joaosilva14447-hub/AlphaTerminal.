@@ -78,27 +78,48 @@ def _basis_state(basis_pct: float, z_score: float) -> tuple[str, str]:
 
 
 @st.cache_data(ttl=120)
-def fetch_basis_series(exchange: str, symbol: str, interval: str, limit: int) -> pd.DataFrame:
+def fetch_basis_series(exchange: str, symbol: str, interval: str, limit: int) -> tuple[pd.DataFrame, str]:
     symbol = symbol.strip().upper()
     limit = max(50, min(500, int(limit)))
+    used_exchange = exchange
 
     if exchange == "Binance":
-        spot_rows = _get_json(
-            f"{BINANCE_SPOT}/api/v3/klines",
-            {"symbol": symbol, "interval": interval, "limit": limit},
-        )
-        perp_rows = _get_json(
-            f"{BINANCE_FUTURES}/fapi/v1/markPriceKlines",
-            {"symbol": symbol, "interval": interval, "limit": limit},
-        )
-        if not isinstance(spot_rows, list) or not isinstance(perp_rows, list):
-            raise RuntimeError("Unexpected Binance response.")
+        try:
+            spot_rows = _get_json(
+                f"{BINANCE_SPOT}/api/v3/klines",
+                {"symbol": symbol, "interval": interval, "limit": limit},
+            )
+            perp_rows = _get_json(
+                f"{BINANCE_FUTURES}/fapi/v1/markPriceKlines",
+                {"symbol": symbol, "interval": interval, "limit": limit},
+            )
+            if not isinstance(spot_rows, list) or not isinstance(perp_rows, list):
+                raise RuntimeError("Unexpected Binance response.")
 
-        spot_df = _kline_frame(spot_rows)
-        perp_df = _kline_frame(perp_rows)
+            spot_df = _kline_frame(spot_rows)
+            perp_df = _kline_frame(perp_rows)
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status in (451, 403):
+                exchange = "Bybit"
+                used_exchange = "Bybit (fallback)"
+            else:
+                raise
+        else:
+            used_exchange = "Binance"
 
-    elif exchange == "Bybit":
-        bybit_interval = {"5m": "5", "15m": "15", "30m": "30", "1h": "60", "2h": "120", "4h": "240", "6h": "360", "12h": "720", "1d": "D"}.get(interval, "60")
+    if exchange == "Bybit":
+        bybit_interval = {
+            "5m": "5",
+            "15m": "15",
+            "30m": "30",
+            "1h": "60",
+            "2h": "120",
+            "4h": "240",
+            "6h": "360",
+            "12h": "720",
+            "1d": "D",
+        }.get(interval, "60")
 
         spot_payload = _get_json(
             f"{BYBIT_API}/v5/market/kline",
@@ -123,7 +144,9 @@ def fetch_basis_series(exchange: str, symbol: str, interval: str, limit: int) ->
 
         spot_df = _kline_frame(spot_rows, close_idx=4, ts_idx=0)
         perp_df = _kline_frame(perp_rows, close_idx=4, ts_idx=0)
-    else:
+        if used_exchange != "Bybit (fallback)":
+            used_exchange = "Bybit"
+    elif exchange != "Binance":
         raise RuntimeError(f"Unsupported exchange: {exchange}")
 
     df = pd.merge(
@@ -139,7 +162,7 @@ def fetch_basis_series(exchange: str, symbol: str, interval: str, limit: int) ->
     annualizer = _periods_per_year(interval)
     df["annualized_basis_pct"] = df["basis_pct"] * annualizer
 
-    return df.sort_values("ts_utc").reset_index(drop=True)
+    return df.sort_values("ts_utc").reset_index(drop=True), used_exchange
 
 
 def basis_zscore(series: pd.Series, window: int) -> pd.Series:
@@ -163,10 +186,13 @@ z_window = int(controls[2].selectbox("Z-WINDOW", [21, 42, 84, 126], index=1))
 chart_mode = controls[3].selectbox("CHART", ["Basis + Z-Score", "Spot vs Perp"], index=0)
 
 try:
-    df = fetch_basis_series(exchange=exchange, symbol=symbol, interval=interval, limit=limit)
+    df, used_exchange = fetch_basis_series(exchange=exchange, symbol=symbol, interval=interval, limit=limit)
 except Exception as exc:
     st.error(f"Basis data unavailable: {exc}")
     st.stop()
+
+if used_exchange == "Bybit (fallback)":
+    st.caption("Binance blocked (451/403). Using Bybit fallback data.")
 
 df["basis_z"] = basis_zscore(df["basis_pct"], z_window)
 df_ready = df.dropna(subset=["basis_z"]).copy()
@@ -185,7 +211,7 @@ c4.metric("ANNUALIZED", f"{last['annualized_basis_pct']:.2f}%")
 
 d1, d2, d3 = st.columns([1, 1, 1.2])
 d1.metric("Z-SCORE", f"{last['basis_z']:.2f}")
-d2.metric("EXCHANGE", exchange)
+d2.metric("EXCHANGE", used_exchange)
 d3.metric("STATE", state_label)
 
 fig = make_subplots(

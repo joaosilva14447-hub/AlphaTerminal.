@@ -68,12 +68,11 @@ for i, (name, interval) in enumerate(tfs.items()):
                 # Barra visual de força
                 st.progress(min(current_adx / 100, 1.0))
                 
-                # Markdown simplificado para evitar o erro de TypeError
-                st.markdown(f"""
-                <div style="padding:10px; border-left: 5px solid {bg_color}; background-color: #1E1E1E;">
-                    <span style="color:white;">Sinal Institucional Ativo</span>
-                </div>
-                """, unsafe_html=True)
+              st.markdown(f"""
+<div style="padding:10px; border-left: 5px solid {bg_color}; background-color: #1E1E1E;">
+    <span style="color:white;">Sinal Institucional Ativo</span>
+</div>
+""", unsafe_allow_html=True)
             else:
                 st.error("Erro de cálculo.")
         else:

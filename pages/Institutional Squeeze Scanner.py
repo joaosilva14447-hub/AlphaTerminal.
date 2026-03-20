@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO ALPHA TERMINAL ---
-st.set_page_config(page_title="Alpha Terminal | Clean View", layout="wide")
+st.set_page_config(page_title="Alpha Terminal | Logarithmic View", layout="wide")
 
 st.markdown("""
     <style>
@@ -26,14 +26,14 @@ with st.sidebar:
     tf_choice = st.selectbox(
         "Select Analysis Timeframe:",
         options=["1 Hour", "4 Hours", "1 Day", "1 Week"],
-        index=0
+        index=2  # Default para 1 Day para melhor proveito do Log Chart
     )
     
     tf_map = {
         "1 Hour": {"interval": "1h", "period": "7d", "zoom": 100},
         "4 Hours": {"interval": "4h", "period": "60d", "zoom": 150},
-        "1 Day": {"interval": "1d", "period": "max", "zoom": 200},
-        "1 Week": {"interval": "1wk", "period": "max", "zoom": 100}
+        "1 Day": {"interval": "1d", "period": "max", "zoom": 500},
+        "1 Week": {"interval": "1wk", "period": "max", "zoom": 150}
     }
     current_tf = tf_map[tf_choice]
 
@@ -77,17 +77,17 @@ except Exception as e:
 c_h1, c_h2, c_h3, c_h4 = st.columns([2,1,1,1])
 with c_h1:
     st.title("⚖️ BTC Institutional Scanner")
-    st.caption(f"BTC/USD | {tf_choice} | Alpha Terminal v2.5")
+    st.caption(f"BTC/USD | {tf_choice} | Logarithmic Scale Active")
 with c_h2:
     st.metric("PRICE", f"${last_price:,.2f}", f"{((last_price/prev_price)-1)*100:.2f}%")
 with c_h3:
-    st.metric(f"ADX", f"{last_adx:.2f}")
+    st.metric(f"ADX (Trend)", f"{last_adx:.2f}")
 with c_h4:
     st.metric("VOLATILITY", "SQUEEZE" if is_squeeze else "RELEASE")
 
 st.divider()
 
-# --- 6. GRÁFICO PRINCIPAL (SEM RANGE SLIDER) ---
+# --- 6. GRÁFICO PRINCIPAL (LOGARITHMIC) ---
 fig = go.Figure()
 
 # Candlesticks
@@ -97,18 +97,18 @@ fig.add_trace(go.Candlestick(
     name="Price"
 ))
 
-# Squeeze Dots (Acumulação)
+# Squeeze Dots
 sqz_on_pts = df[df[col_sqz_on] == 1]
 fig.add_trace(go.Scatter(
-    x=sqz_on_pts.index, y=sqz_on_pts['High'] * 1.003,
+    x=sqz_on_pts.index, y=sqz_on_pts['High'] * 1.05, # Ajuste de offset para Log
     mode='markers', marker=dict(color='#FF5252', size=3, opacity=0.4), 
     name="Squeeze"
 ))
 
-# Signal Trigger (Release + ADX > 20)
+# Signal Trigger (Rocket)
 valid_triggers = df[df['Sqz_Release'] & (df[col_adx] > 20)]
 fig.add_trace(go.Scatter(
-    x=valid_triggers.index, y=valid_triggers['Low'] * 0.98,
+    x=valid_triggers.index, y=valid_triggers['Low'] * 0.92, # Ajuste de offset para Log
     mode='markers+text',
     text="🚀", textposition="bottom center",
     marker=dict(color='#00FBFF', size=12, symbol='triangle-up', line=dict(width=1, color='white')), 
@@ -117,28 +117,33 @@ fig.add_trace(go.Scatter(
 
 fig.update_layout(
     template="plotly_dark",
-    xaxis_rangeslider_visible=False, # REMOVIDO O GRÁFICO INFERIOR (NOISE REDUCTION)
-    height=700,
+    xaxis_rangeslider_visible=False,
+    height=750,
     margin=dict(l=0, r=10, t=0, b=0),
     paper_bgcolor="#0E1117",
     plot_bgcolor="#0E1117",
-    showlegend=True,
+    # --- ATIVAÇÃO DA ESCALA LOGARÍTMICA ---
+    yaxis=dict(
+        type="log",
+        autorange=True,
+        title="Price (Log Scale)",
+        gridcolor="#2D2D2D"
+    ),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 
 # Ajuste do Zoom
-fig.update_xaxes(range=[df.index[-current_tf["zoom"]], df.index[-1]])
+fig.update_xaxes(range=[df.index[-current_tf["zoom"]], df.index[-1]], gridcolor="#2D2D2D")
 
 st.plotly_chart(fig, use_container_width=True)
 
 # --- 7. DIAGNÓSTICO ---
 st.markdown(f"""
     <div class="status-box">
-        <h4 style="margin:0; color:#00FBFF;">Institutional Insight:</h4>
+        <h4 style="margin:0; color:#00FBFF;">Macro Log Analysis:</h4>
         <p style="margin:0; color:white;">
-            Market is currently in <b>{'COMPRESSION' if is_squeeze else 'EXPANSION'}</b> mode. 
-            ADX is <b>{last_adx:.2f}</b>. 
-            {'Avoid breakout entries until the Aqua Rocket signal appears.' if is_squeeze else 'Momentum is active. Follow the trend.'}
+            The logarithmic scale is now active. This view is optimal for identifying long-term institutional trend structures 
+            and expansion phases. Current trend strength (ADX) is <b>{last_adx:.2f}</b>.
         </p>
     </div>
     """, unsafe_allow_html=True)

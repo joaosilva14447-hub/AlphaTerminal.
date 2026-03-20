@@ -1,153 +1,110 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import yfinance as yf
+import pandas_ta as ta
 import plotly.graph_objects as go
 
-# 1. Configuração de Estética Institutional
-st.set_page_config(page_title="Alpha Sentinel Terminal v2.2", layout="wide")
+# --- 1. SETUP TERMINAL ---
+st.set_page_config(page_title="Alpha Terminal | Volume-Momentum", layout="wide")
 
 st.markdown("""
     <style>
-    .main { background-color: #05070a; }
-    div[data-testid="stMetric"] {
-        background-color: #0e1117;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #1e293b;
-    }
+    .main { background-color: #0B0E11; }
     .status-box {
-        padding: 12px;
-        border-radius: 8px;
-        text-align: center;
-        margin-top: 10px;
-        font-weight: bold;
-        text-transform: uppercase;
-        letter-spacing: 1px;
+        padding: 15px; border-radius: 4px;
+        border-left: 4px solid #00FBFF;
+        background-color: #161A1E; margin-bottom: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-class AlphaTerminalEngine:
-    @staticmethod
-    def get_clean_data(ticker, days=100):
-        try:
-            data = yf.download(ticker, period=f"{days}d", interval="1d", progress=False, auto_adjust=True)
-            if data.empty: return None
-            if isinstance(data.columns, pd.MultiIndex):
-                data.columns = data.columns.get_level_values(0)
-            return data
-        except Exception:
-            return None
-
-    @staticmethod
-    def calculate_alpha_matrix(df):
-        if df is None or len(df) < 35: return None
-        
-        close = df['Close']
-        vol = df['Volume']
-        
-        # --- Alpha Matrix Core (Price + Volume Flow) ---
-        roc = close.pct_change(14)
-        vol_avg = vol.rolling(20).mean()
-        # O segredo: Multiplicador de força baseado em anomalias de volume
-        vol_weight = np.clip(vol / vol_avg, 0.5, 3.0) 
-        mom_core = (roc * vol_weight).ewm(span=5).mean()
-        
-        delta = mom_core.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rs = gain / loss.replace(0, np.nan)
-        matrix_series = 100 - (100 / (1 + rs))
-        
-        # --- Bull Score 0/4 (Internal Rules) ---
-        score = 0
-        curr_mom = float(matrix_series.iloc[-1])
-        prev_mom = float(matrix_series.iloc[-2])
-        curr_vol_ratio = float(vol.iloc[-1] / vol_avg.iloc[-1])
-        
-        if curr_mom < 30: score += 1 # Oversold Condition
-        if curr_mom > prev_mom: score += 1 # Momentum Recovery (Hook)
-        if float(close.iloc[-1]) > float(close.rolling(20).mean().iloc[-1]): score += 1 # Trend Confirmation
-        if curr_vol_ratio > 1.0: score += 1 # Volume Inflow Confirmation
-        
-        return {
-            "series": matrix_series,
-            "current_mom": round(curr_mom, 1),
-            "score": score,
-            "vol_ratio": round(curr_vol_ratio, 2),
-            "is_hook_up": curr_mom < 40 and curr_mom > prev_mom,
-            "is_hook_down": curr_mom > 60 and curr_mom < prev_mom
-        }
-
-def draw_velocity_chart(series, ticker):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        y=series, mode='lines', 
-        line=dict(color='#00f2ff', width=3),
-        fill='tozeroy', fillcolor='rgba(0, 242, 255, 0.05)',
-        name="Velocity"
-    ))
-    # Threshold Lines
-    fig.add_hline(y=70, line_dash="dot", line_color="#ff4b4b", opacity=0.3)
-    fig.add_hline(y=30, line_dash="dot", line_color="#00ffaa", opacity=0.3)
+# --- 2. ENGINE DE DADOS (AVM SYSTEM) ---
+@st.cache_data(ttl=60)
+def fetch_avm_data(symbol, interval, period):
+    df = yf.download(symbol, period=period, interval=interval, progress=False)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
     
-    fig.update_layout(
-        height=320, margin=dict(l=10, r=10, t=40, b=10),
-        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-        yaxis=dict(range=[0, 100], color="#64748b", gridcolor="#1e293b", showgrid=True),
-        xaxis=dict(showgrid=False, showticklabels=False),
-        title=dict(text=f"𝓥𝓮𝓵𝓸𝓬𝓲𝓽𝔂 𝓥𝓮𝓬𝓽𝓸𝓻: {ticker}", font=dict(size=16, color="#e2e8f0"))
-    )
-    return fig
+    # MOMENTUM: Squeeze Histogram (LazyBear logic)
+    sqz = ta.squeeze(df['High'], df['Low'], df['Close'], lazybear=True)
+    
+    # VOLUME: Volume SMA Filter
+    df['VOL_SMA'] = ta.sma(df['Volume'], length=20)
+    df['HIGH_VOL'] = df['Volume'] > (df['VOL_SMA'] * 1.2) # 20% acima da média
+    
+    # TREND: ADX para força de direção
+    adx = ta.adx(df['High'], df['Low'], df['Close'], length=14)
+    
+    df = pd.concat([df, sqz, adx], axis=1)
+    df.columns = [str(c).upper() for c in df.columns]
+    return df
 
-# --- Interface Principale ---
-st.title("✦ 𝓐𝓵𝓹𝓱𝓪 𝓢𝓮𝓷𝓽𝓲𝓷𝓮𝓵 𝓣𝓮𝓻𝓶𝓲𝓷𝓪𝓵 𝓿2.2 ✦")
+# --- 3. PROCESSAMENTO ---
+df = fetch_avm_data("BTC-USD", "1d", "max")
 
-# Portfolio limpo, sem benchmarks externos
-portfolio = ["BTC-USD", "NVDA", "MU", "GEV", "GC=F"]
-tabs = st.tabs([f"    {t}    " for t in portfolio])
+# Identificar colunas dinâmicas
+col_sqz_hist = [c for c in df.columns if 'SQZ_2' in c][0]
+col_adx = [c for c in df.columns if 'ADX' in c][0]
 
-for i, ticker in enumerate(portfolio):
-    with tabs[i]:
-        data = AlphaTerminalEngine.get_clean_data(ticker)
-        metrics = AlphaTerminalEngine.calculate_alpha_matrix(data)
-        
-        if metrics:
-            col_metrics, col_chart = st.columns([1, 2.2])
-            
-            with col_metrics:
-                st.metric(
-                    label="𝓜𝓪𝓽𝓻𝓲𝔁 𝓥𝓪𝓵𝓾𝓮", 
-                    value=f"{metrics['current_mom']} pts", 
-                    delta=f"Bull Score: {metrics['score']}/4"
-                )
-                
-                # Volume Force Display (Substitui o Sector Edge)
-                v_ratio = metrics['vol_ratio']
-                v_color = "#00ffaa" if v_ratio > 1 else "#64748b"
-                st.markdown(f"""
-                    <div class="status-box" style="border: 1px solid {v_color}; color: {v_color};">
-                        𝓥𝓸𝓵𝓾𝓶𝓮 𝓕𝓸𝓻𝓬𝓮: {v_ratio}x Avg
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                
-                # Alpha Decision Engine
-                if metrics["score"] >= 3 and metrics["is_hook_up"]:
-                    st.success("🎯 𝓢𝓣𝓡𝓞𝓝𝓖 𝓑𝓤𝓨 (𝓒𝓸𝓷𝓯𝓲𝓻𝓶𝓮𝓭)")
-                elif metrics["is_hook_down"] and metrics["current_mom"] > 65:
-                    st.error("⚠️ 𝓣𝓐𝓚𝓔 𝓟𝓡𝓞𝓕𝓘𝓣")
-                else:
-                    st.info("⌛ 𝓢𝓣𝓐𝓝𝓓𝓑𝓨 (𝓝𝓸 𝓢𝓲𝓰𝓷𝓪𝓵)")
-                
-                with st.expander("Quant Details"):
-                    st.write(f"Trend Status: {'Bullish' if metrics['score'] >= 2 else 'Bearish'}")
-                    st.write(f"Relative Velocity: {metrics['current_mom']}%")
+# GATILHO COMBINADO (AVM SIGNAL)
+# Condição: Momentum a subir (Hist > Hist anterior) + Volume Institucional (High Vol)
+df['AVM_Signal'] = (df[col_sqz_hist] > df[col_sqz_hist].shift(1)) & (df['HIGH_VOL'] == True)
 
-            with col_chart:
-                st.plotly_chart(draw_velocity_chart(metrics["series"], ticker), use_container_width=True)
+last_price = float(df['CLOSE'].iloc[-1])
 
-st.markdown("---")
-st.caption("Alpha Sentinel Terminal | v2.2 Internal Matrix Engine | Institutional Grade Analytics")
+# --- 4. GRÁFICO (REACTIVE VIEW) ---
+fig = go.Figure()
+
+# Candlesticks
+fig.add_trace(go.Candlestick(
+    x=df.index, open=df['OPEN'], high=df['HIGH'], low=df['LOW'], close=df['CLOSE'],
+    increasing_line_color='#00FBFF', decreasing_line_color='#0051FF',
+    name="Price", opacity=0.8
+))
+
+# SINAL AVM (O Diamante Institucional)
+# Este sinal aparece quando VOLUME e MOMENTUM concordam
+avm_pts = df[df['AVM_Signal']]
+fig.add_trace(go.Scatter(
+    x=avm_pts.index, y=avm_pts['LOW'] * 0.97,
+    mode='markers',
+    marker=dict(symbol='diamond', size=10, color='#00FBFF', line=dict(width=1, color='white')),
+    name="AVM Confirmation"
+))
+
+# ROCKET (Explosão Final)
+# Quando o AVM é confirmado por um ADX forte (> 20)
+rockets = df[df['AVM_Signal'] & (df[col_adx] > 20)]
+fig.add_trace(go.Scatter(
+    x=rockets.index, y=rockets['LOW'] * 0.94,
+    mode='markers+text', text="🚀", textposition="bottom center",
+    name="Institutional Breakout"
+))
+
+# Layout e Zoom
+visible_bars = 150
+y_min = df['LOW'].iloc[-visible_bars:].min() * 0.92
+y_max = df['HIGH'].iloc[-visible_bars:].max() * 1.08
+
+fig.update_layout(
+    template="plotly_dark", xaxis_rangeslider_visible=False, height=750,
+    margin=dict(l=0, r=0, t=20, b=0),
+    paper_bgcolor="#0B0E11", plot_bgcolor="#0B0E11",
+    yaxis=dict(type="log", side="right", range=[__import__('math').log10(y_min), __import__('math').log10(y_max)]),
+    xaxis=dict(range=[df.index[-visible_bars], df.index[-1]]),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# --- 5. DIAGNÓSTICO ---
+st.markdown(f"""
+    <div class="status-box">
+        <h4 style="margin:0; color:#00FBFF;">AVM System Analysis:</h4>
+        <p style="margin:5px 0 0 0; color:white;">
+            O sistema <b>AVM (Alpha Volume-Momentum)</b> está a filtrar ruído. <br>
+            • <b>Diamantes (♦):</b> Indicam entrada de volume institucional com momentum positivo (Early Signal). <br>
+            • <b>Foguetes (🚀):</b> Indicam que o volume confirmou e a tendência (ADX) já está em fase de expansão.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)

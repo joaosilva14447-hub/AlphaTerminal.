@@ -5,7 +5,7 @@ import pandas_ta as ta
 import plotly.graph_objects as go
 from datetime import datetime
 
-# --- 1. CONFIGURAÇÃO DE ESTILO ---
+# --- 1. CONFIGURAÇÃO ALPHA TERMINAL ---
 st.set_page_config(page_title="Alpha Terminal | BTC Engine", layout="wide")
 
 st.markdown("""
@@ -21,36 +21,35 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ENGINE DE DADOS (HEDGE FUND LOGIC) ---
+# --- 2. ENGINE DE DADOS ---
 @st.cache_data(ttl=60)
 def fetch_and_calculate(symbol="BTC-USD"):
-    # Download 7 dias de dados 1h
     df = yf.download(symbol, period="7d", interval="1h")
     
-    # IMPORTANTE: Corrigir MultiIndex das versões novas do yfinance
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # Cálculo ADX
+    # ADX para Força de Tendência
     adx_df = ta.adx(df['High'], df['Low'], df['Close'], length=14)
     df = pd.concat([df, adx_df], axis=1)
     
-    # Cálculo Squeeze Momentum (LazyBear)
+    # Squeeze Momentum (BB vs KC)
     sqz_df = ta.squeeze(df['High'], df['Low'], df['Close'], lazybear=True)
     df = pd.concat([df, sqz_df], axis=1)
     
-    # Limpeza de nomes de colunas para garantir strings simples
     df.columns = [str(c) for c in df.columns]
     return df
 
-# --- 3. PROCESSAMENTO ---
+# --- 3. PROCESSAMENTO DE SINAIS ---
 try:
     df = fetch_and_calculate()
     
-    # Identificação dinâmica de colunas (Anti-KeyError)
     col_adx = [c for c in df.columns if 'ADX' in c][0]
     col_sqz_on = [c for c in df.columns if 'SQZ_ON' in c][0]
-    col_sqz_off = [c for c in df.columns if 'SQZ_OFF' in c][0]
+    
+    # LÓGICA DE GATILHO (Trigger Only): O momento exato em que o Squeeze DESLIGA
+    # Queremos saber quando o valor anterior era 1 (Squeeze ON) e o atual é 0 (Release)
+    df['Sqz_Release'] = (df[col_sqz_on].shift(1) == 1) & (df[col_sqz_on] == 0)
     
     last_price = float(df['Close'].iloc[-1])
     prev_price = float(df['Close'].iloc[-2])
@@ -58,92 +57,79 @@ try:
     is_squeeze = int(df[col_sqz_on].iloc[-1]) == 1
     
 except Exception as e:
-    st.error(f"Erro na extração de dados: {e}")
+    st.error(f"Erro no processamento: {e}")
     st.stop()
 
-# --- 4. CABEÇALHO E MÉTRICAS ---
-col_h1, col_h2, col_h3, col_h4 = st.columns([2,1,1,1])
-
-with col_h1:
+# --- 4. CABEÇALHO ---
+c_h1, c_h2, c_h3, c_h4 = st.columns([2,1,1,1])
+with c_h1:
     st.title("⚖️ BTC Institutional Scanner")
-    st.caption(f"Asset: BTC/USD | Terminal Time: {datetime.now().strftime('%H:%M:%S')}")
-
-with col_h2:
+    st.caption(f"Asset: BTC/USD | Terminal v2.1 | {datetime.now().strftime('%H:%M:%S')}")
+with c_h2:
     st.metric("PRICE", f"${last_price:,.2f}", f"{((last_price/prev_price)-1)*100:.2f}%")
-
-with col_h3:
+with c_h3:
     st.metric("ADX (14)", f"{last_adx:.2f}", "Strong" if last_adx > 25 else "Weak")
-
-with col_h4:
-    vol_status = "SQUEEZE" if is_squeeze else "RELEASE"
-    st.metric("VOLATILITY", vol_status, delta_color="normal" if is_squeeze else "inverse")
+with c_h4:
+    st.metric("VOLATILITY", "COMPRESSION" if is_squeeze else "EXPANSION")
 
 st.divider()
 
-# --- 5. GRÁFICO INTERATIVO (ALPHA PALETTE) ---
+# --- 5. GRÁFICO INTERATIVO (LIMPO) ---
 fig = go.Figure()
 
-# Candlesticks
+# Candlesticks (Alpha Palette)
 fig.add_trace(go.Candlestick(
     x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
     increasing_line_color='#00FBFF', decreasing_line_color='#0051FF',
     name="BTC/USD"
 ))
 
-# Sinais Visuais de Squeeze no Gráfico
+# SINAIS DE COMPRESSÃO (Pontos pequenos e discretos)
 sqz_on_pts = df[df[col_sqz_on] == 1]
-sqz_off_pts = df[df[col_sqz_off] == 1]
-
-# Pontos Vermelhos: Compressão (Squeeze ON)
 fig.add_trace(go.Scatter(
-    x=sqz_on_pts.index, y=sqz_on_pts['High'] * 1.01,
-    mode='markers', marker=dict(color='#FF5252', size=5), name="Squeeze ON"
+    x=sqz_on_pts.index, y=sqz_on_pts['High'] * 1.005,
+    mode='markers', marker=dict(color='#FF5252', size=3, opacity=0.4), 
+    name="Accumulation (Squeeze)"
 ))
 
-# Triângulos Aqua: Expansão (Squeeze Release)
+# SINAL DE GATILHO (Aparece apenas na PRIMEIRA vela de saída)
+# Filtro Extra: Só mostramos se o ADX for minimamente relevante (>20)
+valid_triggers = df[df['Sqz_Release'] & (df[col_adx] > 20)]
+
 fig.add_trace(go.Scatter(
-    x=sqz_off_pts.index, y=sqz_off_pts['High'] * 1.015,
-    mode='markers', marker=dict(color='#00FBFF', size=10, symbol='triangle-up'), 
-    name="Momentum Release"
+    x=valid_triggers.index, y=valid_triggers['Low'] * 0.98,
+    mode='markers+text',
+    text="🚀 RELEASE", textposition="bottom center",
+    marker=dict(color='#00FBFF', size=12, symbol='triangle-up', 
+                line=dict(width=1, color='white')), 
+    name="Momentum Trigger"
 ))
 
 fig.update_layout(
-    template="plotly_dark",
-    xaxis_rangeslider_visible=False,
-    height=550,
-    margin=dict(l=0, r=10, t=0, b=0),
-    paper_bgcolor="#0E1117",
-    plot_bgcolor="#0E1117",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    template="plotly_dark", xaxis_rangeslider_visible=False, height=600,
+    margin=dict(l=0, r=10, t=0, b=0), paper_bgcolor="#0E1117", plot_bgcolor="#0E1117",
+    legend=dict(orientation="h", y=1.02, x=1)
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
-# --- 6. ANÁLISE INFERIOR ---
+# --- 6. ANÁLISE DE MOMENTUM ---
 c1, c2 = st.columns([2, 1])
 
 with c1:
-    st.subheader("⚡ Momentum Diagnostic")
+    st.subheader("⚡ Institutional Insight")
     if is_squeeze:
-        st.warning("⚠️ **Market in Compression:** Institucionais estão a acumular posições. Aguarda o sinal de 'Triangle Up' no gráfico para confirmação de breakout.")
-    elif last_adx > 25:
-        st.info("🚀 **Trend Active:** O ADX indica uma tendência forte. O momentum está a favor da volatilidade atual.")
+        st.warning("⚠️ **Low Volatility State:** O preço está em compressão. Evita trades de rompimento agora. Aguarda o triângulo Aqua para sinalizar a expansão.")
+    elif df['Sqz_Release'].iloc[-1]:
+        st.success("🚀 **Breakout Detected!** A volatilidade acabou de expandir. Se o ADX continuar a subir, o movimento terá continuidade.")
     else:
-        st.write("😴 **Low Activity:** Mercado lateralizado sem força direcional clara.")
-    
-    st.write(f"ADX Trend Strength: {last_adx:.1f}%")
-    st.progress(min(last_adx/100, 1.0))
+        st.info("🔄 **Trend in Progress:** O mercado já saiu do squeeze e está a seguir a tendência atual.")
 
 with c2:
-    status_color = "#00FBFF" if not is_squeeze else "#FF5252"
     st.markdown(f"""
     <div class="status-box">
         <p style="margin:0; color:gray; font-size:12px;">SIGNAL STATUS</p>
-        <h3 style="margin:0; color:white;">{'READY TO TRADE' if not is_squeeze and last_adx > 20 else 'MONITORING'}</h3>
-        <p style="margin:0; color:{status_color}; font-size:14px;">
-            {'Volatility Expansion Active' if not is_squeeze else 'Compression Phase'}
-        </p>
+        <h3 style="margin:0; color:white;">{'MONITORING' if is_squeeze else 'VOLATILITY ACTIVE'}</h3>
+        <p style="margin:0; color:#00FBFF; font-size:14px;">ADX Power: {last_adx:.1f}</p>
     </div>
     """, unsafe_allow_html=True)
-
-st.divider()

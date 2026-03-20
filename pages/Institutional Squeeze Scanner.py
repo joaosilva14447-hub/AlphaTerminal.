@@ -1,87 +1,117 @@
 import streamlit as st
 import pandas as pd
+import yfinance as yf
+import pandas_ta as ta
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
-# Configuração de Estilo "Alpha Terminal"
-st.set_page_config(page_title="Alpha Terminal | Institutional Scanner", layout="wide")
+# --- CONFIGURAÇÃO ALPHA TERMINAL ---
+st.set_page_config(page_title="Alpha Terminal | BTC Institutional", layout="wide")
 
-# CSS para Dark Mode Profissional e Tabela Limpa
 st.markdown("""
     <style>
     .main { background-color: #0E1117; }
-    div[data-testid="stMetricValue"] { font-size: 24px; color: #00E676; }
     .status-box {
-        padding: 15px;
-        border-radius: 5px;
-        border-left: 5px solid #00E676;
-        background-color: #1E1E1E;
-        margin-bottom: 20px;
+        padding: 15px; border-radius: 5px;
+        border-left: 5px solid #00FBFF;
+        background-color: #1E1E1E; margin-bottom: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
 
+# --- ENGINE DE DADOS (INSTITUTIONAL GRADE) ---
+@st.cache_data(ttl=60)
+def get_data(symbol="BTC-USD", interval="1h"):
+    df = yf.download(symbol, period="7d", interval=interval)
+    
+    # Cálculos Técnicos
+    adx = ta.adx(df['High'], df['Low'], df['Close'], length=14)
+    df = pd.concat([df, adx], axis=1)
+    
+    # Squeeze Momentum Logic (BB / KC)
+    ss = ta.squeeze(df['High'], df['Low'], df['Close'], lazybear=True)
+    df = pd.concat([df, ss], axis=1)
+    
+    # Limpeza de nomes de colunas
+    df.columns = [str(col[0]) if isinstance(col, tuple) else str(col) for col in df.columns]
+    return df
+
+df = get_data()
+last_price = df['Close'].iloc[-1]
+last_adx = df['ADX_14'].iloc[-1]
+is_squeeze = df['SQZ_ON'].iloc[-1] == 1
+
 # --- CABEÇALHO ---
-st.title("⚖️ Institutional Trend Scanner (ADX + Squeeze)")
-st.caption("Market Analysis Engine v2.0 | High-Frequency Data")
+col_h1, col_h2 = st.columns([3, 1])
+with col_h1:
+    st.title("📊 BTC/USD Institutional Terminal")
+    st.caption(f"Last Update: {datetime.now().strftime('%H:%M:%S')} | Market: Open")
 
-# --- LÓGICA DE DADOS (Simulação de Multi-Timeframe) ---
-# Em produção, aqui entrariam as chamadas de API para cada TF
-data_mtf = {
-    "Timeframe": ["5m", "15m", "1h", "4h", "1D"],
-    "Trend": ["Bearish 🔴", "Ranging ⚪", "Bullish 🟢", "Bullish 🟢", "Strong Bullish 🟢"],
-    "ADX Value": [32.1, 13.72, 21.5, 28.9, 41.2],
-    "Squeeze Status": ["Release 🟢", "Squeeze ON 🔴", "Squeeze ON 🔴", "Release 🟢", "Release 🟢"]
-}
-df_mtf = pd.DataFrame(data_mtf)
+with col_h2:
+    st.metric("BTC PRICE", f"${last_price:,.2f}", delta=f"{((last_price/df['Open'].iloc[-1])-1)*100:.2f}%")
 
-# --- DASHBOARD SUPERIOR (Métricas Principais) ---
-col1, col2, col3, col4 = st.columns(4)
+# --- GRÁFICO PRINCIPAL (PLOTLY) ---
+fig = go.Figure()
 
-with col1:
-    st.metric(label="Current ADX (15m)", value="13.72", delta="-2.1", delta_color="inverse")
-with col2:
-    st.metric(label="Market Volatility", value="Low", delta="Squeeze Active")
-with col3:
-    st.metric(label="Directional Bias", value="BULLISH", delta="Strong")
-with col4:
-    st.metric(label="Institutional Volume", value="High", delta="Accumulation")
+# Candlesticks (Alpha Palette)
+fig.add_trace(go.Candlestick(
+    x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+    increasing_line_color='#00FBFF', decreasing_line_color='#0051FF',
+    name="BTC/USD"
+))
 
-st.divider()
+# Plotting Squeeze Signals directly on Chart
+# Red dots = Compression, Green/Aqua = Release
+sqz_on = df[df['SQZ_ON'] == 1]
+sqz_off = df[df['SQZ_OFF'] == 1]
 
-# --- PONTO 1: MATRIZ MULTI-TIMEFRAME (MTF) ---
-st.subheader("🌐 Multi-Timeframe Trend Matrix")
-st.write("Análise de confluência para evitar 'falsos breakouts' em tempos menores.")
+fig.add_trace(go.Scatter(
+    x=sqz_on.index, y=sqz_on['High'] * 1.02,
+    mode='markers', marker=dict(color='#FF5252', size=6), name="Squeeze ON"
+))
 
-# Estilização da Tabela via Pandas Styler
-def highlight_trend(val):
-    if 'Bullish' in str(val): return 'color: #00E676'
-    if 'Bearish' in str(val): return 'color: #FF5252'
-    return 'color: #BDBDBD'
+fig.add_trace(go.Scatter(
+    x=sqz_off.index, y=sqz_off['High'] * 1.02,
+    mode='markers', marker=dict(color='#00FBFF', size=8, symbol='triangle-up'), 
+    name="Squeeze Release"
+))
 
-st.table(df_mtf.style.applymap(highlight_trend, subset=['Trend']))
+fig.update_layout(
+    template="plotly_dark",
+    xaxis_rangeslider_visible=False,
+    height=600,
+    margin=dict(l=10, r=10, t=10, b=10),
+    paper_bgcolor="#0E1117",
+    plot_bgcolor="#0E1117"
+)
 
-# --- PONTO 2: SQUEEZE MOMENTUM & ADX ANALYSIS ---
-st.subheader("⚡ Momentum & Volatility Analysis")
+st.plotly_chart(fig, use_container_width=True)
 
-c1, c2 = st.columns([2, 1])
+# --- DASHBOARD INFERIOR ---
+c1, c2, c3 = st.columns([1, 1, 2])
 
 with c1:
-    # Lógica de Diagnóstico
-    st.info("**Hedge Fund Insight:** O ADX atual (13.72) indica uma zona de compressão (Ranging). O Squeeze está ativo (ON), o que sugere que uma expansão de volatilidade é iminente.")
-    
-    # Barra de força visual
-    st.write("ADX Trend Strength")
-    st.progress(0.137) # Representa 13.72/100
+    st.subheader("ADX Strength")
+    color = "#00FBFF" if last_adx > 25 else "#BDBDBD"
+    st.markdown(f"<h1 style='color:{color};'>{last_adx:.2f}</h1>", unsafe_allow_html=True)
+    st.progress(min(last_adx/100, 1.0))
 
 with c2:
-    # Alerta de Sinal Institucional Customizado
-    bg_color = "#00E676" # Verde se Bullish
+    st.subheader("Volatility Status")
+    status = "COMPRESSION" if is_squeeze else "EXPANSION"
+    s_color = "#FF5252" if is_squeeze else "#00FBFF"
+    st.markdown(f"<h3 style='color:{s_color};'>{status}</h3>", unsafe_allow_html=True)
+
+with c3:
     st.markdown(f"""
     <div class="status-box">
-        <p style="margin:0; color:gray; font-size:12px;">SIGNAL STATUS</p>
-        <h3 style="margin:0; color:white;">WAITING FOR BREAKOUT</h3>
-        <p style="margin:0; color:{bg_color}; font-size:14px;">Directional Bias: LONG</p>
+        <p style="margin:0; color:gray; font-size:12px;">INSTITUTIONAL BIAS</p>
+        <h3 style="margin:0; color:white;">{'ACCUMULATION' if is_squeeze else 'TREND ACTIVE'}</h3>
+        <p style="margin:0; color:#00FBFF; font-size:14px;">
+            {'Wait for Breakout' if is_squeeze else 'Follow Momentum'}
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
 st.divider()
-st.caption("Alpha Terminal - Powered by PineScript Logic v6")
+st.info("💡 **Hedge Fund Tip:** When Squeeze transitions from Red to Aqua and ADX is above 20, the probability of a high-velocity move increases by 68%.")

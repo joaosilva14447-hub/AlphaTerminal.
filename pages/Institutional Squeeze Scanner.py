@@ -2,94 +2,72 @@ import pandas as pd
 import pandas_ta as ta
 import yfinance as yf
 import streamlit as st
-import numpy as np
 
-# --- CONFIGURAÇÃO DE CORES ---
+# --- CORES ---
 COLOR_AQUA = "#00FFFF"
 COLOR_BLUE = "#0000FF"
 
 def calculate_squeeze(df):
-    """Calcula o Squeeze Pro com protecção contra dados vazios"""
-    if df is None or len(df) < 30:
+    if df is None or len(df) < 40:
         return None
-    
     try:
-        # 1. Bollinger Bands (20, 2)
+        # Cálculo dos indicadores via pandas_ta
         bb = ta.bbands(df['Close'], length=20, std=2.0)
-        # 2. Keltner Channels (20, 1.5)
         kc = ta.kc(df['High'], df['Low'], df['Close'], length=20, scalar=1.5)
         
         if bb is None or kc is None: return None
         
-        # Selecção segura de colunas por posição (iloc) para evitar erros de nomes
-        lower_bb = bb.iloc[:, 0]
-        upper_bb = bb.iloc[:, 2]
-        lower_kc = kc.iloc[:, 0]
-        upper_kc = kc.iloc[:, 2]
+        # sqz_on: Bandas de Bollinger dentro dos Canais de Keltner
+        df['sqz_on'] = (bb.iloc[:, 0] > kc.iloc[:, 0]) & (bb.iloc[:, 2] < kc.iloc[:, 2])
         
-        # Lógica do Squeeze
-        df['sqz_on'] = (lower_bb > lower_kc) & (upper_bb < upper_kc)
-        
-        # Momentum (Regressão Linear do oscilador)
-        mom = ta.linreg(df['Close'] - df['Close'].rolling(20).mean(), length=20)
-        df['momentum'] = mom
-        
+        # Momentum (Regressão Linear)
+        df['momentum'] = ta.linreg(df['Close'] - df['Close'].rolling(20).mean(), length=20)
         return df
-    except Exception as e:
+    except:
         return None
 
-# --- UI STREAMLIT ---
-st.set_page_config(layout="wide", page_title="Hedge Fund Scanner")
+# --- UI ---
+st.set_page_config(layout="wide")
 st.title("🛡️ Institutional Squeeze Scanner")
 
-ticker_input = st.text_input("Ativo (ex: BTC-USD, AAPL, EURUSD=X)", "BTC-USD").upper()
+ticker = st.text_input("Ativo", "BTC-USD").upper()
 tfs = {"15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d"}
 
 cols = st.columns(len(tfs))
 
 for i, (name, interval) in enumerate(tfs.items()):
     with cols[i]:
-        # Download com limpeza imediata de MultiIndex
-        data = yf.download(ticker_input, period="60d", interval=interval, progress=False)
+        # 1. Download dos dados
+        data = yf.download(ticker, period="60d", interval=interval, progress=False)
         
         if not data.empty:
-            # Garante que as colunas são simples (Close, High, Low...)
+            # 2. CORREÇÃO CRUCIAL: Remover o MultiIndex do yfinance
             if isinstance(data.columns, pd.MultiIndex):
                 data.columns = data.columns.get_level_values(0)
             
-            df_result = calculate_squeeze(data)
+            # 3. Garantir que os dados são Series simples (Achatamento)
+            data = data.copy()
+            for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                if col in data.columns:
+                    data[col] = data[col].astype(float)
+
+            df = calculate_squeeze(data)
             
-            if df_result is not None:
-                # EXTRAÇÃO SEGURA: Garantimos que o valor é um número (scalar)
-                last_sqz = bool(df_result['sqz_on'].iloc[-1])
-                # Usamos float() e .item() para garantir que não é uma série/lista
-                try:
-                    last_mom = float(df_result['momentum'].iloc[-1])
-                except:
-                    last_mom = 0.0
+            if df is not None:
+                # 4. Extração de valores simples (scalars) para evitar o TypeError
+                is_sqz = bool(df['sqz_on'].iloc[-1])
+                mom_val = float(df['momentum'].iloc[-1])
                 
-                # Definição de Cores e Status
-                if last_sqz:
-                    bg_color = "white"
-                    status = "SQUEEZE ON"
-                    trend = "COMPRESSÃO"
-                else:
-                    bg_color = COLOR_AQUA if last_mom > 0 else COLOR_BLUE
-                    status = "RELEASE (FIRED)"
-                    trend = "BULLISH" if last_mom > 0 else "BEARISH"
+                # Lógica de Cores
+                bg_color = "white" if is_sqz else (COLOR_AQUA if mom_val > 0 else COLOR_BLUE)
+                trend_text = "BULLISH" if mom_val > 0 else "BEARISH"
                 
-                # Exibição
-                st.metric(label=f"Timeframe: {name}", value=status)
+                st.metric(f"TF: {name}", "SQUEEZE" if is_sqz else "RELEASE")
                 
-                # HTML com tratamento de erro para strings
-                html_card = f"""
-                <div style="background-color:{bg_color}; padding:30px; border-radius:15px; text-align:center; border: 2px solid #333;">
-                    <h2 style="color:black; margin:0; font-weight:bold;">{trend}</h2>
-                    <p style="color:black; margin:5px 0 0 0; opacity:0.8;">Mom: {last_mom:.4f}</p>
-                </div>
-                """
-                st.markdown(html_card, unsafe_html=True)
-            else:
-                st.error(f"Erro no cálculo: {name}")
-        else:
-            st.warning(f"Sem dados para {name}")
+                # O HTML agora recebe apenas valores convertidos (float/string)
+                st.markdown(f"""
+                    <div style="background-color:{bg_color}; padding:20px; border-radius:10px; text-align:center; border: 2px solid #333;">
+                        <h3 style="color:black; margin:0;">{trend_text}</h3>
+                        <p style="color:black; margin:0; font-size:12px;">Mom: {mom_val:.4f}</p>
+                    </div>
+                """, unsafe_html=True)

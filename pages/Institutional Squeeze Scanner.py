@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO ALPHA TERMINAL ---
-st.set_page_config(page_title="Alpha Terminal | BTC Macro 2020", layout="wide")
+st.set_page_config(page_title="Alpha Terminal | Multi-Timeframe", layout="wide")
 
 st.markdown("""
     <style>
@@ -17,105 +17,116 @@ st.markdown("""
         border-left: 5px solid #00FBFF;
         background-color: #1E1E1E; margin-bottom: 20px;
     }
+    .stProgress > div > div > div > div { background-color: #00FBFF; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ENGINE DE DADOS (HISTÓRICO LONGO) ---
-@st.cache_data(ttl=3600) # Cache de 1 hora para dados históricos
-def fetch_macro_data(symbol="BTC-USD"):
-    # Download desde 2020 no timeframe Diário (1D)
-    df = yf.download(symbol, start="2020-01-01", interval="1d")
+# --- 2. SELETOR DE TIMEFRAME (SIDEBAR OU TOP) ---
+with st.sidebar:
+    st.header("🎛️ Terminal Settings")
+    tf_choice = st.selectbox(
+        "Select Analysis Timeframe:",
+        options=["1 Hour", "4 Hours", "1 Day", "1 Week"],
+        index=0
+    )
+    
+    # Mapeamento para o Yahoo Finance
+    tf_map = {
+        "1 Hour": {"interval": "1h", "period": "7d", "zoom": 100},
+        "4 Hours": {"interval": "4h", "period": "60d", "zoom": 150},
+        "1 Day": {"interval": "1d", "period": "max", "zoom": 365},
+        "1 Week": {"interval": "1wk", "period": "max", "zoom": 100}
+    }
+    
+    current_tf = tf_map[tf_choice]
+
+# --- 3. ENGINE DE DADOS DINÂMICA ---
+@st.cache_data(ttl=60)
+def fetch_and_calculate(symbol, interval, period):
+    df = yf.download(symbol, period=period, interval=interval)
     
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # ADX (Tendência Macro)
+    # ADX
     adx_df = ta.adx(df['High'], df['Low'], df['Close'], length=14)
     df = pd.concat([df, adx_df], axis=1)
     
-    # Squeeze Momentum (Acumulação Macro)
+    # Squeeze Momentum
     sqz_df = ta.squeeze(df['High'], df['Low'], df['Close'], lazybear=True)
     df = pd.concat([df, sqz_df], axis=1)
     
     df.columns = [str(c) for c in df.columns]
     return df
 
-# --- 3. PROCESSAMENTO ---
+# --- 4. PROCESSAMENTO ---
 try:
-    df = fetch_macro_data()
+    df = fetch_and_calculate("BTC-USD", current_tf["interval"], current_tf["period"])
     
     col_adx = [c for c in df.columns if 'ADX' in c][0]
     col_sqz_on = [c for c in df.columns if 'SQZ_ON' in c][0]
     
-    # Gatilho de saída (Sqz_Release)
     df['Sqz_Release'] = (df[col_sqz_on].shift(1) == 1) & (df[col_sqz_on] == 0)
     
     last_price = float(df['Close'].iloc[-1])
-    price_2020 = float(df['Close'].iloc[0])
+    prev_price = float(df['Close'].iloc[-2])
     last_adx = float(df[col_adx].iloc[-1])
     is_squeeze = int(df[col_sqz_on].iloc[-1]) == 1
     
 except Exception as e:
-    st.error(f"Erro no processamento: {e}")
+    st.error(f"Error loading {tf_choice} data: {e}")
     st.stop()
 
-# --- 4. CABEÇALHO MACRO ---
+# --- 5. CABEÇALHO ---
 c_h1, c_h2, c_h3, c_h4 = st.columns([2,1,1,1])
 with c_h1:
-    st.title("⚖️ BTC Macro Historical Scanner")
-    st.caption(f"Historical View since 2020 | Interval: 1 Day")
+    st.title(f"⚖️ BTC Institutional Scanner")
+    st.caption(f"BTC/USD | Timeframe: {tf_choice} | {datetime.now().strftime('%H:%M:%S')}")
 with c_h2:
-    st.metric("CURRENT PRICE", f"${last_price:,.2f}")
+    st.metric("PRICE", f"${last_price:,.2f}", f"{((last_price/prev_price)-1)*100:.2f}%")
 with c_h3:
-    perf = ((last_price/price_2020)-1)*100
-    st.metric("PERF. SINCE 2020", f"{perf:,.0f}%", delta=f"{perf:,.2f}%")
+    st.metric(f"ADX ({tf_choice})", f"{last_adx:.2f}")
 with c_h4:
-    st.metric("MACRO TREND (ADX)", f"{last_adx:.1f}")
+    st.metric("VOLATILITY", "COMPRESSION" if is_squeeze else "EXPANSION")
 
 st.divider()
 
-# --- 5. GRÁFICO DIÁRIO (DESDE 2020) ---
+# --- 6. GRÁFICO INTERATIVO ---
 fig = go.Figure()
 
-# Candlesticks
 fig.add_trace(go.Candlestick(
     x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
     increasing_line_color='#00FBFF', decreasing_line_color='#0051FF',
-    name="BTC/USD"
+    name=f"BTC {tf_choice}"
 ))
 
-# Sinais de Squeeze (Pontos de acumulação diária)
+# Acumulação
 sqz_on_pts = df[df[col_sqz_on] == 1]
 fig.add_trace(go.Scatter(
-    x=sqz_on_pts.index, y=sqz_on_pts['High'] * 1.02,
-    mode='markers', marker=dict(color='#FF5252', size=2, opacity=0.3), 
-    name="Macro Compression"
+    x=sqz_on_pts.index, y=sqz_on_pts['High'] * 1.005,
+    mode='markers', marker=dict(color='#FF5252', size=3, opacity=0.4), 
+    name="Squeeze"
 ))
 
-# Gatilhos de Explosão Macro (Filtro ADX > 20 para evitar ruído diário)
+# Release (Gatilho)
 valid_triggers = df[df['Sqz_Release'] & (df[col_adx] > 20)]
-
 fig.add_trace(go.Scatter(
-    x=valid_triggers.index, y=valid_triggers['Low'] * 0.95,
-    mode='markers',
-    marker=dict(color='#00FBFF', size=8, symbol='triangle-up', 
-                line=dict(width=1, color='white')), 
-    name="Volatility Breakout"
+    x=valid_triggers.index, y=valid_triggers['Low'] * 0.98,
+    mode='markers+text',
+    text="🚀", textposition="bottom center",
+    marker=dict(color='#00FBFF', size=12, symbol='triangle-up', line=dict(width=1, color='white')), 
+    name="Breakout"
 ))
 
 fig.update_layout(
-    template="plotly_dark",
-    xaxis_rangeslider_visible=True, # Slider essencial para navegar anos de dados
-    height=700,
-    margin=dict(l=0, r=10, t=0, b=0),
-    paper_bgcolor="#0E1117",
-    plot_bgcolor="#0E1117"
+    template="plotly_dark", xaxis_rangeslider_visible=True, height=650,
+    margin=dict(l=0, r=10, t=0, b=0), paper_bgcolor="#0E1117", plot_bgcolor="#0E1117"
 )
 
-# Configurar o zoom inicial para os últimos 6 meses, mas com tudo carregado
-fig.update_xaxes(range=[df.index[-180], df.index[-1]])
+# Ajuste automático do zoom inicial baseado no Timeframe
+fig.update_xaxes(range=[df.index[-current_tf["zoom"]], df.index[-1]])
 
 st.plotly_chart(fig, use_container_width=True)
 
-# --- 6. INSIGHT INSTITUCIONAL ---
-st.info("💡 **Hedge Fund Note:** Em gráficos diários, o sinal 'Release' (Aqua) seguido de um ADX crescente acima de 25 marca historicamente o início de 'Bull Runs' de vários meses.")
+# --- 7. FOOTER ANALYSIS ---
+st.info(f"💡 **Terminal View:** Analyzing {tf_choice} candles. Longer timeframes (1D/1W) provide stronger institutional confirmation.")

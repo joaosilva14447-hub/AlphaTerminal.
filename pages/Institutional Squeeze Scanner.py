@@ -6,16 +6,17 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 # --- 1. CONFIGURAÇÃO ALPHA TERMINAL ---
-st.set_page_config(page_title="Alpha Terminal | Logarithmic View", layout="wide")
+st.set_page_config(page_title="Alpha Terminal | Institutional Scanner", layout="wide")
 
+# Custom CSS for Professional Dark Theme
 st.markdown("""
     <style>
-    .main { background-color: #0E1117; }
-    [data-testid="stMetricValue"] { font-size: 28px; color: #00FBFF !important; }
+    .main { background-color: #0B0E11; }
+    [data-testid="stMetricValue"] { font-size: 26px; color: #00FBFF !important; }
     .status-box {
-        padding: 20px; border-radius: 8px;
-        border-left: 5px solid #00FBFF;
-        background-color: #1E1E1E; margin-bottom: 20px;
+        padding: 15px; border-radius: 4px;
+        border-left: 4px solid #00FBFF;
+        background-color: #161A1E; margin-bottom: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -24,126 +25,136 @@ st.markdown("""
 with st.sidebar:
     st.header("🎛️ Terminal Settings")
     tf_choice = st.selectbox(
-        "Select Analysis Timeframe:",
+        "Analysis Timeframe:",
         options=["1 Hour", "4 Hours", "1 Day", "1 Week"],
-        index=2  # Default para 1 Day para melhor proveito do Log Chart
+        index=2
     )
     
     tf_map = {
-        "1 Hour": {"interval": "1h", "period": "7d", "zoom": 100},
-        "4 Hours": {"interval": "4h", "period": "60d", "zoom": 150},
-        "1 Day": {"interval": "1d", "period": "max", "zoom": 500},
-        "1 Week": {"interval": "1wk", "period": "max", "zoom": 150}
+        "1 Hour": {"interval": "1h", "period": "7d", "zoom": 72},
+        "4 Hours": {"interval": "4h", "period": "60d", "zoom": 100},
+        "1 Day": {"interval": "1d", "period": "max", "zoom": 180},
+        "1 Week": {"interval": "1wk", "period": "max", "zoom": 52}
     }
     current_tf = tf_map[tf_choice]
 
 # --- 3. ENGINE DE DADOS ---
 @st.cache_data(ttl=60)
 def fetch_and_calculate(symbol, interval, period):
-    df = yf.download(symbol, period=period, interval=interval)
-    
+    df = yf.download(symbol, period=period, interval=interval, progress=False)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # ADX & Squeeze
-    adx_df = ta.adx(df['High'], df['Low'], df['Close'], length=14)
-    df = pd.concat([df, adx_df], axis=1)
+    # Technicals
+    adx = ta.adx(df['High'], df['Low'], df['Close'], length=14)
+    sqz = ta.squeeze(df['High'], df['Low'], df['Close'], lazybear=True)
+    df = pd.concat([df, adx, sqz], axis=1)
     
-    sqz_df = ta.squeeze(df['High'], df['Low'], df['Close'], lazybear=True)
-    df = pd.concat([df, sqz_df], axis=1)
-    
-    df.columns = [str(c) for c in df.columns]
+    # Clean Column Names
+    df.columns = [str(c).upper() for c in df.columns]
     return df
 
 # --- 4. PROCESSAMENTO ---
 try:
     df = fetch_and_calculate("BTC-USD", current_tf["interval"], current_tf["period"])
     
+    # Identify Columns Dynamically
     col_adx = [c for c in df.columns if 'ADX' in c][0]
     col_sqz_on = [c for c in df.columns if 'SQZ_ON' in c][0]
     
+    # Signals
     df['Sqz_Release'] = (df[col_sqz_on].shift(1) == 1) & (df[col_sqz_on] == 0)
     
-    last_price = float(df['Close'].iloc[-1])
-    prev_price = float(df['Close'].iloc[-2])
-    last_adx = float(df[col_adx].iloc[-1])
-    is_squeeze = int(df[col_sqz_on].iloc[-1]) == 1
+    last_row = df.iloc[-1]
+    prev_row = df.iloc[-2]
+    
+    last_price = float(last_row['CLOSE'])
+    price_chg = ((last_price / float(prev_row['CLOSE'])) - 1) * 100
+    last_adx = float(last_row[col_adx])
+    is_squeeze = int(last_row[col_sqz_on]) == 1
     
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Data Engine Error: {e}")
     st.stop()
 
 # --- 5. CABEÇALHO ---
-c_h1, c_h2, c_h3, c_h4 = st.columns([2,1,1,1])
-with c_h1:
+c1, c2, c3, c4 = st.columns([2,1,1,1])
+with c1:
     st.title("⚖️ BTC Institutional Scanner")
-    st.caption(f"BTC/USD | {tf_choice} | Logarithmic Scale Active")
-with c_h2:
-    st.metric("PRICE", f"${last_price:,.2f}", f"{((last_price/prev_price)-1)*100:.2f}%")
-with c_h3:
-    st.metric(f"ADX (Trend)", f"{last_adx:.2f}")
-with c_h4:
-    st.metric("VOLATILITY", "SQUEEZE" if is_squeeze else "RELEASE")
+    st.caption(f"ASSET: BTC/USD | TF: {tf_choice} | LOG SCALE")
+with c2:
+    st.metric("PRICE", f"${last_price:,.2f}", f"{price_chg:.2f}%")
+with c3:
+    st.metric("ADX (TREND)", f"{last_adx:.2f}")
+with c4:
+    st.metric("VOLATILITY", "SQUEEZE" if is_squeeze else "EXPANSION")
 
-st.divider()
-
-# --- 6. GRÁFICO PRINCIPAL (LOGARITHMIC) ---
+# --- 6. GRÁFICO PRINCIPAL ---
 fig = go.Figure()
 
-# Candlesticks
+# Candlesticks with User Palette
 fig.add_trace(go.Candlestick(
-    x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
-    increasing_line_color='#00FBFF', decreasing_line_color='#0051FF',
-    name="Price"
+    x=df.index, open=df['OPEN'], high=df['HIGH'], low=df['LOW'], close=df['CLOSE'],
+    increasing_line_color='#00FBFF', increasing_fillcolor='#00FBFF', # Aqua
+    decreasing_line_color='#0051FF', decreasing_fillcolor='#0051FF', # Blue
+    name="BTC Price", line=dict(width=1)
 ))
 
-# Squeeze Dots
-sqz_on_pts = df[df[col_sqz_on] == 1]
+# Squeeze Points (Small Dots)
+sqz_on = df[df[col_sqz_on] == 1]
 fig.add_trace(go.Scatter(
-    x=sqz_on_pts.index, y=sqz_on_pts['High'] * 1.05, # Ajuste de offset para Log
-    mode='markers', marker=dict(color='#FF5252', size=3, opacity=0.4), 
-    name="Squeeze"
+    x=sqz_on.index, y=sqz_on['HIGH'] * 1.02,
+    mode='markers', marker=dict(color='#FF2E63', size=4, opacity=0.6),
+    name="Squeeze Phase", showlegend=False
 ))
 
-# Signal Trigger (Rocket)
-valid_triggers = df[df['Sqz_Release'] & (df[col_adx] > 20)]
+# Breakout Signals (Institutional Rocket)
+signals = df[df['Sqz_Release'] & (df[col_adx] > 20)]
 fig.add_trace(go.Scatter(
-    x=valid_triggers.index, y=valid_triggers['Low'] * 0.92, # Ajuste de offset para Log
-    mode='markers+text',
-    text="🚀", textposition="bottom center",
-    marker=dict(color='#00FBFF', size=12, symbol='triangle-up', line=dict(width=1, color='white')), 
-    name="Breakout"
+    x=signals.index, y=signals['LOW'] * 0.96,
+    mode='markers',
+    marker=dict(symbol='triangle-up', size=12, color='#00FBFF', line=dict(width=1, color='white')),
+    name="Institutional Breakout"
 ))
 
+# Layout Fixes for Clarity
 fig.update_layout(
     template="plotly_dark",
     xaxis_rangeslider_visible=False,
-    height=750,
-    margin=dict(l=0, r=10, t=0, b=0),
-    paper_bgcolor="#0E1117",
-    plot_bgcolor="#0E1117",
-    # --- ATIVAÇÃO DA ESCALA LOGARÍTMICA ---
+    height=700,
+    margin=dict(l=10, r=10, t=10, b=10),
+    paper_bgcolor="#0B0E11",
+    plot_bgcolor="#0B0E11",
     yaxis=dict(
         type="log",
-        autorange=True,
-        title="Price (Log Scale)",
-        gridcolor="#2D2D2D"
+        side="right",
+        gridcolor="#1E222D",
+        zeroline=False,
+        showline=True,
+        linecolor="#2D323E",
+        tickformat=",.0f"
+    ),
+    xaxis=dict(
+        gridcolor="#1E222D",
+        showline=True,
+        linecolor="#2D323E"
     ),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
 )
 
-# Ajuste do Zoom
-fig.update_xaxes(range=[df.index[-current_tf["zoom"]], df.index[-1]], gridcolor="#2D2D2D")
+# Apply Zoom Strategy
+zoom_start = df.index[-current_tf["zoom"]]
+fig.update_xaxes(range=[zoom_start, df.index[-1]])
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-# --- 7. DIAGNÓSTICO ---
+# --- 7. FOOTER ANALYSIS ---
 st.markdown(f"""
     <div class="status-box">
-        <h4 style="margin:0; color:#00FBFF;">Macro Log Analysis:</h4>
-        <p style="margin:0; color:white;">
-            The logarithmic scale is now active. This view is optimal for identifying long-term institutional trend structures 
-            and expansion phases. Current trend strength (ADX) is <b>{last_adx:.2f}</b>.
+        <h4 style="margin:0; color:#00FBFF; font-size:16px;">Institutional Macro Analysis:</h4>
+        <p style="margin:5px 0 0 0; color:#E0E0E0; font-size:14px;">
+            Logarithmic trendlines confirmed. Trend Strength (ADX) is <b>{last_adx:.2f}</b>. 
+            {"High compression (Squeeze) detected - awaiting volatility expansion." if is_squeeze else "Market in expansion phase - institutional momentum active."}
         </p>
     </div>
     """, unsafe_allow_html=True)

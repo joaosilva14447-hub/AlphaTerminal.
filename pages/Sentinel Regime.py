@@ -1,101 +1,221 @@
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-import pandas_ta as ta
-import plotly.graph_objects as go
-
-# --- 1. SETUP ---
-st.set_page_config(page_title="Alpha Terminal | Lifecycle Scanner", layout="wide")
-
-# --- 2. ENGINE DE DADOS (LIFECYCLE LOGIC) ---
-@st.cache_data(ttl=60)
-def fetch_lifecycle_data(symbol, interval, period):
-    df = yf.download(symbol, period=period, interval=interval, progress=False)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    
-    # MOMENTUM: Squeeze Histogram (Reatividade)
-    sqz = ta.squeeze(df['High'], df['Low'], df['Close'], lazybear=True)
-    
-    # VOLUME: SMA 20 + Rate of Change
-    df['VOL_SMA'] = ta.sma(df['Volume'], length=20)
-    
-    # TREND: EMA 21 (Filtro de Tendência Institucional)
-    df['EMA21'] = ta.ema(df['Close'], length=21)
-    
-    df = pd.concat([df, sqz], axis=1)
-    df.columns = [str(c).upper() for c in df.columns]
-    return df
-
-# --- 3. PROCESSAMENTO DE SINAIS ---
-df = fetch_lifecycle_data("BTC-USD", "1d", "max")
-col_sqz_hist = [c for c in df.columns if 'SQZ_2' in c][0]
-
-# LÓGICA DE ENTRADA (BULLISH)
-# Momentum a crescer + Volume acima da média + Preço acima da EMA21
-df['BULL_ENTRY'] = (df[col_sqz_hist] > df[col_sqz_hist].shift(1)) & \
-                   (df['VOLUME'] > df['VOL_SMA']) & \
-                   (df['CLOSE'] > df['EMA21'])
-
-# LÓGICA DE SAÍDA/AVISO (CASH/EXHAUST)
-# Momentum a cair + Volume a decrescer (Sinal de fraqueza no topo)
-df['CASH_WARNING'] = (df[col_sqz_hist] < df[col_sqz_hist].shift(1)) & \
-                     (df['VOLUME'] < df['VOLUME'].shift(1)) & \
-                     (df['CLOSE'] > df['EMA21']) # Ainda em tendência, mas perdendo força
-
-# --- 4. VISUALIZAÇÃO ---
-fig = go.Figure()
-
-# Preço
-fig.add_trace(go.Candlestick(
-    x=df.index, open=df['OPEN'], high=df['HIGH'], low=df['LOW'], close=df['CLOSE'],
-    increasing_line_color='#00FBFF', decreasing_line_color='#0051FF', name="Price"
-))
-
-# PLOT: BULLISH ENTRY (Diamante Aqua)
-bull_pts = df[df['BULL_ENTRY'] & (df['BULL_ENTRY'].shift(1) == False)]
-fig.add_trace(go.Scatter(
-    x=bull_pts.index, y=bull_pts['LOW'] * 0.97,
-    mode='markers', marker=dict(symbol='diamond', size=10, color='#00FBFF', line=dict(width=1, color='white')),
-    name="Bullish Ignition"
-))
-
-# PLOT: CASH WARNING (Aviso de Liquidez - X Amarelo ou Círculo Laranja)
-cash_pts = df[df['CASH_WARNING'] & (df['CASH_WARNING'].shift(1) == False)]
-fig.add_trace(go.Scatter(
-    x=cash_pts.index, y=cash_pts['HIGH'] * 1.03,
-    mode='markers', marker=dict(symbol='x', size=8, color='#FFA500'),
-    name="Cash/Exhaustion Warning"
-))
-
-# Configuração Full Frame (Zoom nos últimos 120 dias)
-visible_bars = 120
-y_min = df['LOW'].iloc[-visible_bars:].min() * 0.95
-y_max = df['HIGH'].iloc[-visible_bars:].max() * 1.05
-
-fig.update_layout(
-    template="plotly_dark", height=750, margin=dict(l=0, r=0, t=10, b=0),
-    xaxis_rangeslider_visible=False, paper_bgcolor="#0B0E11", plot_bgcolor="#0B0E11",
-    yaxis=dict(type="log", side="right", range=[__import__('math').log10(y_min), __import__('math').log10(y_max)]),
-    xaxis=dict(range=[df.index[-visible_bars], df.index[-1]]),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+st.markdown(
+    """
+<style>
+    .main { background-color: #0F0F0F; }
+    div[data-testid='stMetric'] {
+        background-color: #161616;
+        padding: 16px;
+        border-radius: 6px;
+        border: 1px solid #2A2A2A;
+    }
+    .stDataFrame { background-color: #161616; border-radius: 6px; }
+    .signal-board {
+        margin-top: 12px;
+        padding: 22px;
+        border-radius: 18px;
+        border: 1px solid rgba(76, 125, 255, 0.18);
+        background:
+            radial-gradient(circle at top right, rgba(76, 125, 255, 0.16), transparent 28%),
+            linear-gradient(180deg, rgba(19, 24, 33, 0.98), rgba(10, 13, 18, 0.98));
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+    }
+    .signal-board-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 18px;
+    }
+    .signal-board-title {
+        color: #EAF2FF;
+        font-size: 1.08rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    .signal-board-subtitle {
+        color: #8D9AAF;
+        font-size: 0.86rem;
+    }
+    .signal-board-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin-bottom: 18px;
+    }
+    .signal-card {
+        padding: 16px 18px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: linear-gradient(180deg, rgba(24, 29, 38, 0.96), rgba(14, 17, 24, 0.96));
+    }
+    .signal-card-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+    .signal-rank {
+        color: #6E7B91;
+        font-size: 0.78rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+    .signal-asset {
+        color: #F7FAFF;
+        font-size: 1.28rem;
+        font-weight: 800;
+        line-height: 1.1;
+    }
+    .signal-score-pill {
+        min-width: 70px;
+        padding: 8px 10px;
+        border-radius: 999px;
+        text-align: center;
+        font-weight: 800;
+        font-size: 0.98rem;
+        color: #F7FAFF;
+    }
+    .signal-card-setup {
+        margin-bottom: 12px;
+        color: #D8E2F2;
+        font-size: 0.95rem;
+        font-weight: 600;
+    }
+    .signal-card-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .signal-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        border: 1px solid transparent;
+    }
+    .badge-bull {
+        color: #7CFFD1;
+        background: rgba(0, 255, 170, 0.10);
+        border-color: rgba(0, 255, 170, 0.20);
+    }
+    .badge-bear {
+        color: #FFB18B;
+        background: rgba(255, 92, 92, 0.10);
+        border-color: rgba(255, 92, 92, 0.22);
+    }
+    .badge-range {
+        color: #C7D0DB;
+        background: rgba(141, 154, 175, 0.12);
+        border-color: rgba(141, 154, 175, 0.22);
+    }
+    .badge-compression {
+        color: #A9BCFF;
+        background: rgba(76, 125, 255, 0.12);
+        border-color: rgba(76, 125, 255, 0.26);
+    }
+    .badge-neutral {
+        color: #D5DEEB;
+        background: rgba(199, 208, 219, 0.10);
+        border-color: rgba(199, 208, 219, 0.16);
+    }
+    .signal-card-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+    }
+    .signal-stat-label {
+        color: #7F8A9E;
+        font-size: 0.70rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 4px;
+    }
+    .signal-stat-value {
+        color: #F3F7FD;
+        font-size: 0.98rem;
+        font-weight: 700;
+    }
+    .signal-table {
+        overflow: hidden;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        background: rgba(8, 10, 14, 0.65);
+    }
+    .signal-table table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .signal-table thead th {
+        padding: 12px 14px;
+        text-align: left;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        text-transform: uppercase;
+        color: #7F8A9E;
+        background: rgba(255, 255, 255, 0.03);
+    }
+    .signal-table tbody tr {
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .signal-table tbody tr:nth-child(odd) {
+        background: rgba(255, 255, 255, 0.015);
+    }
+    .signal-table tbody tr:hover {
+        background: rgba(76, 125, 255, 0.08);
+    }
+    .signal-table td {
+        padding: 14px;
+        color: #EAF2FF;
+        font-size: 0.95rem;
+        vertical-align: middle;
+    }
+    .rank-cell {
+        color: #6E7B91;
+        font-weight: 700;
+        width: 48px;
+    }
+    .asset-cell {
+        font-weight: 800;
+        font-size: 1.02rem;
+        letter-spacing: 0.02em;
+    }
+    .score-cell {
+        min-width: 190px;
+    }
+    .score-shell {
+        position: relative;
+        height: 11px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.08);
+        margin-bottom: 8px;
+    }
+    .score-fill {
+        height: 100%;
+        border-radius: 999px;
+    }
+    .score-text {
+        font-size: 0.90rem;
+        font-weight: 700;
+        color: #F7FAFF;
+    }
+    .metric-pos { color: #7CFFD1; font-weight: 700; }
+    .metric-neg { color: #FFB18B; font-weight: 700; }
+    .metric-flat { color: #D5DEEB; font-weight: 700; }
+    @media (max-width: 1100px) {
+        .signal-board-grid { grid-template-columns: 1fr; }
+        .signal-card-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .signal-table { overflow-x: auto; }
+    }
+</style>
+""",
+    unsafe_allow_html=True,
 )
-
-st.plotly_chart(fig, use_container_width=True)
-
-# --- 5. DASHBOARD DE STATUS ---
-c1, c2 = st.columns(2)
-with c1:
-    st.markdown(f"""
-        <div style="border-left: 4px solid #00FBFF; padding:10px; background:#161A1E;">
-            <h5 style="color:#00FBFF; margin:0;">BULLISH IGNITION ♦</h5>
-            <p style="font-size:13px; color:white; margin:0;">Volume confirmado + Momentum em aceleração. Entrada de capital institucional.</p>
-        </div>
-    """, unsafe_allow_html=True)
-with c2:
-    st.markdown(f"""
-        <div style="border-left: 4px solid #FFA500; padding:10px; background:#161A1E;">
-            <h5 style="color:#FFA500; margin:0;">CASH WARNING ✖</h5>
-            <p style="font-size:13px; color:white; margin:0;">Divergência de Volume + Perda de Momentum. Risco de exaustão e proteção de capital.</p>
-        </div>
-    """, unsafe_allow_html=True)

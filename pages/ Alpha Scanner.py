@@ -3,20 +3,19 @@ import pandas_ta as ta
 import yfinance as yf
 import streamlit as st
 
-# 1. Configuração da Página
+# --- PAGE SETUP ---
 try:
     st.set_page_config(page_title="Alpha Momentum Matrix", layout="wide")
 except:
     pass
 
-st.title("🛡️ Alpha Momentum Matrix (Elite)")
-st.markdown("Monitorização Avançada de Compressão e Aceleração Institucional")
+st.title("🛡️ Alpha Institutional Terminal")
+st.markdown("Advanced Compression & Institutional Acceleration Matrix")
 
-# --- MOTOR DE DADOS E CÁLCULOS ---
-def get_data_elite(ticker, tf):
+# --- DATA ENGINE ---
+def get_institutional_data(ticker, tf):
     try:
         df = yf.download(ticker, period="100d", interval=tf, progress=False)
-        # Limpeza obrigatória para evitar erros de MultiIndex
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         if df.empty or len(df) < 30: 
@@ -25,101 +24,120 @@ def get_data_elite(ticker, tf):
     except:
         return None
 
-def calc_elite_signals(df):
+def calc_alpha_signals(df):
     try:
-        # Bandas de Bollinger e Canais de Keltner
+        # Bands & Channels
         bb = ta.bbands(df['Close'], length=20, std=2.0)
         kc = ta.kc(df['High'], df['Low'], df['Close'], length=20, scalar=1.5)
         
         if bb is None or kc is None: return None
 
-        # Squeeze Logic (Acesso direto por posição para evitar falhas)
+        # Squeeze Logic
         sqz_on = (bb.iloc[:, 0] > kc.iloc[:, 0]) & (bb.iloc[:, 2] < kc.iloc[:, 2])
         df['sqz_on'] = sqz_on
-        
-        # Squeeze Duration (Conta os períodos consecutivos de compressão)
         df['sqz_duration'] = df['sqz_on'].groupby((~df['sqz_on']).cumsum()).cumsum()
         
-        # Momentum e Aceleração (A Derivada)
+        # Momentum & Acceleration
         mom = ta.linreg(df['Close'] - df['Close'].rolling(20).mean(), length=20)
         mom_acc = mom.diff()
         
-        # Volume Health (Confirmação de tendência vs volume)
+        # Relative Volume (RVOL) - Institutional Core Metric
         vol_sma = ta.sma(df['Volume'], 20)
-        vol_trend = df['Volume'] > vol_sma
+        rvol = df['Volume'] / vol_sma
         
         last = -1
         return {
-            "Ativo": "TEMP", # Será substituído no loop principal
-            "Preço": float(df['Close'].iloc[last]),
-            "Squeeze": "🔴 ON" if sqz_on.iloc[last] else "🟢 OFF",
-            "Dias Squeeze": int(df['sqz_duration'].iloc[last]),
-            "Mom. Status": "BULL" if mom.iloc[last] > 0 else "BEAR",
-            "Aceleração": round(float(mom_acc.iloc[last]), 2),
-            "Volume Forte": "SIM" if vol_trend.iloc[last] else "NÃO"
+            "Ticker": "TEMP",
+            "Price": float(df['Close'].iloc[last]),
+            "Squeeze": "🔴 ON" if sqz_on.iloc[last] else "🟢 FIRE",
+            "Squeeze Days": int(df['sqz_duration'].iloc[last]),
+            "Momentum": "BULL" if mom.iloc[last] > 0 else "BEAR",
+            "Acceleration": round(float(mom_acc.iloc[last]), 2),
+            "RVOL": round(float(rvol.iloc[last]), 2)
         }
     except:
         return None
 
-# --- INTERFACE DO DASHBOARD ---
+# --- UI & DASHBOARD ---
 with st.sidebar:
-    st.header("Parâmetros do Radar")
-    tickers_list = st.text_area("Watchlist", "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, AAPL").split(",")
+    st.header("Radar Parameters")
+    tickers_list = st.text_area("Watchlist (Comma separated)", "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, AAPL, TSLA, NVDA").split(",")
     tf_choice = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=2)
-    btn = st.button("ANALISAR MERCADO")
+    btn = st.button("RUN MARKET SCAN")
 
 if btn:
-    st.write("A processar métricas de alta precisão...")
+    st.write("Processing high-precision metrics...")
     results = []
     
     for t in tickers_list:
         symbol = t.strip()
-        if not symbol: continue # Ignora espaços em branco
+        if not symbol: continue
             
-        df_raw = get_data_elite(symbol, tf_choice)
+        df_raw = get_institutional_data(symbol, tf_choice)
         
         if df_raw is not None:
-            sigs = calc_elite_signals(df_raw)
+            sigs = calc_alpha_signals(df_raw)
             if sigs:
-                sigs["Ativo"] = symbol
+                sigs["Ticker"] = symbol
                 results.append(sigs)
     
     if results:
         res_df = pd.DataFrame(results)
         
-        # --- Formatação Visual Customizada (Sem Matplotlib) ---
-        def highlight_squeeze(val):
-            return 'color: #0055FF; font-weight: bold' if val == "🔴 ON" else 'color: #00FFAA'
-            
-        def highlight_mom(val):
-            return 'color: #00FFAA; font-weight: bold' if val == "BULL" else 'color: #0055FF'
-            
-        def color_acceleration(val):
-            try:
-                color = '#00FFAA' if float(val) > 0 else '#0055FF'
-                return f'color: {color}'
-            except:
-                return ''
-
-        def heatmap_squeeze_days(val):
-            try:
-                if pd.isna(val) or val == 0:
-                    return ''
-                # Calcula a intensidade do fundo azul (máximo aos 15 períodos de compressão)
-                alpha = min(float(val) / 15.0, 0.8) 
-                return f'background-color: rgba(0, 85, 255, {alpha}); color: white; font-weight: bold;'
-            except:
-                return ''
-
-        # Aplica os estilos ao DataFrame
-        styled_df = (res_df.style
-                     .map(highlight_squeeze, subset=['Squeeze'])
-                     .map(highlight_mom, subset=['Mom. Status'])
-                     .map(color_acceleration, subset=['Aceleração'])
-                     .map(heatmap_squeeze_days, subset=['Dias Squeeze'])
-                     .format({'Preço': "{:.2f}", 'Aceleração': "{:+.2f}"}))
-
-        st.dataframe(styled_df, use_container_width=True, height=400)
+        # --- TOP METRICS ---
+        st.divider()
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Assets in Squeeze", len(res_df[res_df['Squeeze'] == "🔴 ON"]))
+        col2.metric("Bullish Momentum", len(res_df[res_df['Momentum'] == "BULL"]))
         
+        # Count assets with high institutional volume (RVOL > 1.2)
+        high_vol = len(res_df[res_df['RVOL'] > 1.2])
+        col3.metric("High RVOL Detects (>1.2)", high_vol)
+        st.divider()
+        
+        # --- VISUAL COMPONENTS ---
+        viz_col1, viz_col2 = st.columns([2, 1])
+
+        with viz_col1:
+            st.subheader("Market Confluence Matrix")
+            # Custom Styling
+            def highlight_squeeze(val):
+                return 'color: #0055FF; font-weight: bold' if val == "🔴 ON" else 'color: #00FFAA'
+                
+            def highlight_mom(val):
+                return 'color: #00FFAA; font-weight: bold' if val == "BULL" else 'color: #0055FF'
+                
+            def color_accel_rvol(val):
+                try:
+                    color = '#00FFAA' if float(val) > 0 else '#0055FF'
+                    if float(val) > 1.5: return 'color: #00FFAA; font-weight: bold' # High RVOL highlight
+                    return f'color: {color}'
+                except:
+                    return ''
+
+            def heatmap_squeeze(val):
+                try:
+                    if pd.isna(val) or val == 0: return ''
+                    alpha = min(float(val) / 15.0, 0.8) 
+                    return f'background-color: rgba(0, 85, 255, {alpha}); color: white; font-weight: bold;'
+                except:
+                    return ''
+
+            styled_df = (res_df.style
+                         .map(highlight_squeeze, subset=['Squeeze'])
+                         .map(highlight_mom, subset=['Momentum'])
+                         .map(color_accel_rvol, subset=['Acceleration', 'RVOL'])
+                         .map(heatmap_squeeze, subset=['Squeeze Days'])
+                         .format({'Price': "${:.2f}", 'Acceleration': "{:+.2f}", 'RVOL': "{:.2f}x"}))
+
+            st.dataframe(styled_df, use_container_width=True, height=400)
+            
+        with viz_col2:
+            st.subheader("Alpha Rotation Radar")
+            st.caption("X: Acceleration | Y: Squeeze Days")
+            # Using native Streamlit scatter chart mapped to our core metrics
+            plot_df = res_df.set_index("Ticker")[["Acceleration", "Squeeze Days"]]
+            st.scatter_chart(plot_df, x="Acceleration", y="Squeeze Days", color="#00FFAA", height=350)
+            
     else:
-        st.warning("Sem dados limpos para apresentar. Verifica a ligação ou a lista de ativos.")
+        st.warning("No clean data found. Please check your connection or asset list.")

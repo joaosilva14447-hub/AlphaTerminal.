@@ -1,955 +1,17 @@
-import html
-
-import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-import streamlit as st
-import yfinance as yf
-from plotly.subplots import make_subplots
-
-
-st.set_page_config(page_title="Alpha Momentum Matrix", layout="wide")
-
-st.markdown(
-    """
-<style>
-    .main { background-color: #0F0F0F; }
-    div[data-testid='stMetric'] {
-        background-color: #161616;
-        padding: 16px;
-        border-radius: 6px;
-        border: 1px solid #2A2A2A;
-    }
-    .stDataFrame { background-color: #161616; border-radius: 6px; }
-    .signal-board {
-        margin-top: 12px;
-        padding: 22px;
-        border-radius: 18px;
-        border: 1px solid rgba(76, 125, 255, 0.18);
-        background:
-            radial-gradient(circle at top right, rgba(76, 125, 255, 0.16), transparent 28%),
-            linear-gradient(180deg, rgba(19, 24, 33, 0.98), rgba(10, 13, 18, 0.98));
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
-    }
-    .signal-board-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 16px;
-        margin-bottom: 18px;
-    }
-    .signal-board-title {
-        color: #EAF2FF;
-        font-size: 1.08rem;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-    }
-    .signal-board-subtitle {
-        color: #8D9AAF;
-        font-size: 0.86rem;
-    }
-    .signal-board-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 14px;
-        margin-bottom: 18px;
-    }
-    .signal-card {
-        padding: 16px 18px;
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        background: linear-gradient(180deg, rgba(24, 29, 38, 0.96), rgba(14, 17, 24, 0.96));
-    }
-    .signal-card-top {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 12px;
-        margin-bottom: 10px;
-    }
-    .signal-rank {
-        color: #6E7B91;
-        font-size: 0.78rem;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-    }
-    .signal-asset {
-        color: #F7FAFF;
-        font-size: 1.28rem;
-        font-weight: 800;
-        line-height: 1.1;
-    }
-    .signal-score-pill {
-        min-width: 70px;
-        padding: 8px 10px;
-        border-radius: 999px;
-        text-align: center;
-        font-weight: 800;
-        font-size: 0.98rem;
-        color: #F7FAFF;
-    }
-    .signal-card-setup {
-        margin-bottom: 12px;
-        color: #D8E2F2;
-        font-size: 0.95rem;
-        font-weight: 600;
-    }
-    .signal-card-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 12px;
-    }
-    .signal-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 0.76rem;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        border: 1px solid transparent;
-    }
-    .badge-bull {
-        color: #7CFFD1;
-        background: rgba(0, 255, 170, 0.10);
-        border-color: rgba(0, 255, 170, 0.20);
-    }
-    .badge-bear {
-        color: #FFB18B;
-        background: rgba(255, 92, 92, 0.10);
-        border-color: rgba(255, 92, 92, 0.22);
-    }
-    .badge-range {
-        color: #C7D0DB;
-        background: rgba(141, 154, 175, 0.12);
-        border-color: rgba(141, 154, 175, 0.22);
-    }
-    .badge-compression {
-        color: #A9BCFF;
-        background: rgba(76, 125, 255, 0.12);
-        border-color: rgba(76, 125, 255, 0.26);
-    }
-    .badge-neutral {
-        color: #D5DEEB;
-        background: rgba(199, 208, 219, 0.10);
-        border-color: rgba(199, 208, 219, 0.16);
-    }
-    .signal-card-stats {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 10px;
-    }
-    .signal-stat-label {
-        color: #7F8A9E;
-        font-size: 0.70rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 4px;
-    }
-    .signal-stat-value {
-        color: #F3F7FD;
-        font-size: 0.98rem;
-        font-weight: 700;
-    }
-    .signal-table {
-        overflow: hidden;
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        background: rgba(8, 10, 14, 0.65);
-    }
-    .signal-table table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-    .signal-table thead th {
-        padding: 12px 14px;
-        text-align: left;
-        font-size: 0.74rem;
-        font-weight: 700;
-        letter-spacing: 0.10em;
-        text-transform: uppercase;
-        color: #7F8A9E;
-        background: rgba(255, 255, 255, 0.03);
-    }
-    .signal-table tbody tr {
-        border-top: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    .signal-table tbody tr:nth-child(odd) {
-        background: rgba(255, 255, 255, 0.015);
-    }
-    .signal-table tbody tr:hover {
-        background: rgba(76, 125, 255, 0.08);
-    }
-    .signal-table td {
-        padding: 14px;
-        color: #EAF2FF;
-        font-size: 0.95rem;
-        vertical-align: middle;
-    }
-    .rank-cell {
-        color: #6E7B91;
-        font-weight: 700;
-        width: 48px;
-    }
-    .asset-cell {
-        font-weight: 800;
-        font-size: 1.02rem;
-        letter-spacing: 0.02em;
-    }
-    .score-cell {
-        min-width: 190px;
-    }
-    .score-shell {
-        position: relative;
-        height: 11px;
-        border-radius: 999px;
-        overflow: hidden;
-        background: rgba(255, 255, 255, 0.08);
-        margin-bottom: 8px;
-    }
-    .score-fill {
-        height: 100%;
-        border-radius: 999px;
-    }
-    .score-text {
-        font-size: 0.90rem;
-        font-weight: 700;
-        color: #F7FAFF;
-    }
-    .metric-pos { color: #7CFFD1; font-weight: 700; }
-    .metric-neg { color: #FFB18B; font-weight: 700; }
-    .metric-flat { color: #D5DEEB; font-weight: 700; }
-    @media (max-width: 1100px) {
-        .signal-board-grid { grid-template-columns: 1fr; }
-        .signal-card-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .signal-table { overflow-x: auto; }
-    }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    "<h1 style='text-align:center; color:#EAF2FF;'>Alpha Momentum Matrix</h1>",
-    unsafe_allow_html=True,
-)
-st.caption(
-    "Cross-asset squeeze and expansion radar with causal normalization, volatility-scaled momentum, "
-    "relative volume confirmation, and a stricter structural regime engine."
-)
-
-TIMEFRAME_CONFIG = {
-    "1h": {
-        "download_interval": "60m",
-        "period": "730d",
-        "resample": None,
-        "z_window": 240,
-        "regime_window": 72,
-        "release_decay_bars": 5,
-        "min_squeeze_bars": 4,
-        "display_bars": 240,
-        "min_history": 320,
-        "weights": {"mom": 0.42, "acc": 0.28, "trend": 0.20, "vol": 0.10},
-    },
-    "4h": {
-        "download_interval": "60m",
-        "period": "730d",
-        "resample": "4h",
-        "z_window": 180,
-        "regime_window": 45,
-        "release_decay_bars": 5,
-        "min_squeeze_bars": 3,
-        "display_bars": 220,
-        "min_history": 260,
-        "weights": {"mom": 0.44, "acc": 0.24, "trend": 0.22, "vol": 0.10},
-    },
-    "1d": {
-        "download_interval": "1d",
-        "period": "10y",
-        "resample": None,
-        "z_window": 126,
-        "regime_window": 30,
-        "release_decay_bars": 4,
-        "min_squeeze_bars": 3,
-        "display_bars": 240,
-        "min_history": 240,
-        "weights": {"mom": 0.47, "acc": 0.18, "trend": 0.25, "vol": 0.10},
-    },
-}
-
-DEFAULT_WATCHLIST = "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, AAPL"
-
-
-def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
-    if isinstance(df.columns, pd.MultiIndex):
-        df = df.copy()
-        df.columns = df.columns.get_level_values(0)
-    return df
-
-
-def _normalize_index(index: pd.Index) -> pd.DatetimeIndex:
-    normalized = pd.to_datetime(index)
-    if getattr(normalized, "tz", None) is not None:
-        normalized = normalized.tz_convert(None)
-    return normalized
-
-
-def _ema(series: pd.Series, length: int) -> pd.Series:
-    return series.ewm(span=length, adjust=False, min_periods=length).mean()
-
-
-def _causal_rolling_zscore(series: pd.Series, window: int) -> pd.Series:
-    history = series.shift(1)
-    mean = history.rolling(window=window, min_periods=window).mean()
-    std = history.rolling(window=window, min_periods=window).std(ddof=0)
-    z = (series - mean) / std.replace(0.0, np.nan)
-    return z.replace([np.inf, -np.inf], np.nan)
-
-
-def _atr(df: pd.DataFrame, length: int = 14) -> pd.Series:
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-    prev_close = close.shift(1)
-    true_range = pd.concat(
-        [
-            high - low,
-            (high - prev_close).abs(),
-            (low - prev_close).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
-    return true_range.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
-
-
-def _resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
-    agg = {
-        "Open": "first",
-        "High": "max",
-        "Low": "min",
-        "Close": "last",
-        "Volume": "sum",
-    }
-    out = df.resample(rule, label="right", closed="right").agg(agg)
-    return out.dropna(subset=["Open", "High", "Low", "Close"])
-
-
-def _clean_watchlist(raw_text: str) -> list[str]:
-    seen: set[str] = set()
-    tickers: list[str] = []
-    for item in raw_text.split(","):
-        symbol = item.strip().upper()
-        if not symbol or symbol in seen:
-            continue
-        seen.add(symbol)
-        tickers.append(symbol)
-    return tickers
-
-
-def _squeeze_ranges(index: pd.Index, mask: pd.Series) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
-    ranges: list[tuple[pd.Timestamp, pd.Timestamp]] = []
-    active_start: pd.Timestamp | None = None
-    active_end: pd.Timestamp | None = None
-
-    for ts, active in zip(index, mask.fillna(False).tolist()):
-        if active and active_start is None:
-            active_start = ts
-        if active:
-            active_end = ts
-        elif active_start is not None and active_end is not None:
-            ranges.append((active_start, active_end))
-            active_start = None
-            active_end = None
-
-    if active_start is not None and active_end is not None:
-        ranges.append((active_start, active_end))
-
-    return ranges
-
-
-def _bias_label(score: float) -> str:
-    if score >= 70:
-        return "Strong Long"
-    if score >= 57:
-        return "Long"
-    if score <= 30:
-        return "Strong Short"
-    if score <= 43:
-        return "Short"
-    return "Neutral"
-
-
-def _score_visuals(score: float) -> tuple[str, str]:
-    if score >= 70:
-        return "linear-gradient(90deg, #00D68F, #00FFAA)", "rgba(0, 255, 170, 0.18)"
-    if score >= 57:
-        return "linear-gradient(90deg, #00B8D9, #00E5FF)", "rgba(0, 229, 255, 0.18)"
-    if score <= 30:
-        return "linear-gradient(90deg, #FF6B6B, #FF3B30)", "rgba(255, 92, 92, 0.18)"
-    if score <= 43:
-        return "linear-gradient(90deg, #FFB86B, #FF9F43)", "rgba(255, 159, 67, 0.18)"
-    return "linear-gradient(90deg, #7A869A, #A0AEC0)", "rgba(160, 174, 192, 0.16)"
-
-
-def _badge_class(value: str, column: str) -> str:
-    value_lower = value.lower()
-    if column == "Regime":
-        if value_lower == "bull":
-            return "badge-bull"
-        if value_lower == "bear":
-            return "badge-bear"
-        return "badge-range"
-    if "compression" in value_lower:
-        return "badge-compression"
-    if "bull" in value_lower or "long" in value_lower:
-        return "badge-bull"
-    if "bear" in value_lower or "short" in value_lower:
-        return "badge-bear"
-    return "badge-neutral"
-
-
-def _metric_class(value: float, positive_threshold: float, negative_threshold: float) -> str:
-    if value >= positive_threshold:
-        return "metric-pos"
-    if value <= negative_threshold:
-        return "metric-neg"
-    return "metric-flat"
-
-
-def _regime_symbol(value: str) -> str:
-    return {"Bull": "diamond", "Bear": "x", "Range": "circle"}.get(value, "circle")
-
-
-def _setup_label(
-    regime: str,
-    squeeze_on: bool,
-    squeeze_fired: bool,
-    momentum_z: float,
-    accel_z: float,
-    rvol: float,
-    score: float,
-) -> str:
-    if squeeze_on:
-        return "Compression"
-    if regime == "Bull" and score >= 60 and momentum_z > 0.35 and accel_z > -0.1:
-        return "Bull Expansion"
-    if regime == "Bear" and score <= 40 and momentum_z < -0.35 and accel_z < 0.1:
-        return "Bear Expansion"
-    if squeeze_fired and momentum_z > 0:
-        return "Bull Release"
-    if squeeze_fired and momentum_z < 0:
-        return "Bear Release"
-    if abs(momentum_z) < 0.35 and abs(accel_z) < 0.35 and 0.9 <= rvol <= 1.15:
-        return "Neutral"
-    return "Transition"
-
-
-def _data_health_label(volume_quality: float, bars: int, min_history: int) -> str:
-    if bars < min_history:
-        return "Thin"
-    if volume_quality < 0.35:
-        return "Sparse"
-    if volume_quality < 0.75:
-        return "Mixed"
-    return "Healthy"
-
-
-def _ensure_results_schema(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-
-    normalized = df.copy()
-    defaults: dict[str, object] = {
-        "Asset": "",
-        "Price": np.nan,
-        "Regime": "Range",
-        "Bias": "Neutral",
-        "Setup": "Transition",
-        "Setup Score": 50.0,
-        "Confidence": 0.50,
-        "Squeeze": "OFF",
-        "Squeeze Bars": 0,
-        "Momentum Z": 0.0,
-        "Acceleration Z": 0.0,
-        "Trend Z": 0.0,
-        "RVOL": 1.0,
-        "NATR %": np.nan,
-        "Data Health": "Mixed",
-    }
-
-    for column, default_value in defaults.items():
-        if column not in normalized.columns:
-            normalized[column] = default_value
-
-    numeric_columns = [
-        "Price",
-        "Setup Score",
-        "Confidence",
-        "Squeeze Bars",
-        "Momentum Z",
-        "Acceleration Z",
-        "Trend Z",
-        "RVOL",
-        "NATR %",
-    ]
-    for column in numeric_columns:
-        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
-
-    normalized["Setup Score"] = normalized["Setup Score"].fillna(50.0)
-    normalized["Confidence"] = normalized["Confidence"].fillna(0.50).clip(0, 1)
-    normalized["Squeeze Bars"] = normalized["Squeeze Bars"].fillna(0).astype(int)
-    normalized["Momentum Z"] = normalized["Momentum Z"].fillna(0.0)
-    normalized["Acceleration Z"] = normalized["Acceleration Z"].fillna(0.0)
-    normalized["Trend Z"] = normalized["Trend Z"].fillna(0.0)
-    normalized["RVOL"] = normalized["RVOL"].fillna(1.0)
-    normalized["Data Health"] = normalized["Data Health"].fillna("Mixed").astype(str)
-
-    return normalized
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_price_history(ticker: str, timeframe: str) -> tuple[pd.DataFrame, str | None]:
-    config = TIMEFRAME_CONFIG[timeframe]
-    try:
-        df = yf.download(
-            ticker,
-            period=config["period"],
-            interval=config["download_interval"],
-            progress=False,
-            auto_adjust=True,
-            threads=False,
-        )
-    except Exception as exc:
-        return pd.DataFrame(), f"download failed: {exc}"
-
-    df = _flatten_columns(df)
-    required = ["Open", "High", "Low", "Close", "Volume"]
-    if df.empty or any(column not in df.columns for column in required):
-        return pd.DataFrame(), "missing required OHLCV columns"
-
-    df = df[required].copy()
-    for column in required:
-        df[column] = pd.to_numeric(df[column], errors="coerce")
-
-    df = df.dropna(subset=["Open", "High", "Low", "Close"])
-    df.index = _normalize_index(df.index)
-    df = df[~df.index.duplicated(keep="last")].sort_index()
-
-    if config["resample"]:
-        df = _resample_ohlcv(df, config["resample"])
-
-    df = df.dropna(subset=["Open", "High", "Low", "Close"])
-    if df.empty:
-        return pd.DataFrame(), "cleaned history is empty"
-
-    return df, None
-
-
-def calculate_signals(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
-    config = TIMEFRAME_CONFIG[timeframe]
-    weights = config["weights"]
-
-    data = df.copy()
-    close = data["Close"]
-    volume = data["Volume"].where(data["Volume"] > 0.0, np.nan)
-
-    ema_20 = _ema(close, 20)
-    ema_50 = _ema(close, 50)
-    ema_200 = _ema(close, 200)
-    atr_14 = _atr(data, 14)
-    atr_20 = _atr(data, 20)
-    natr = (atr_14 / close.replace(0.0, np.nan)) * 100.0
-
-    bb_basis = close.rolling(window=20, min_periods=20).mean()
-    bb_std = close.rolling(window=20, min_periods=20).std(ddof=0)
-    bb_upper = bb_basis + 2.0 * bb_std
-    bb_lower = bb_basis - 2.0 * bb_std
-
-    kc_basis = ema_20
-    kc_upper = kc_basis + 1.5 * atr_20
-    kc_lower = kc_basis - 1.5 * atr_20
-
-    squeeze_on = (bb_lower > kc_lower) & (bb_upper < kc_upper)
-    squeeze_group = (~squeeze_on).cumsum()
-    squeeze_duration = squeeze_on.groupby(squeeze_group).cumsum().fillna(0).astype(int)
-    prior_squeeze_duration = squeeze_duration.where(squeeze_on).ffill().shift(1).fillna(0).astype(int)
-    squeeze_fired = (~squeeze_on) & squeeze_on.shift(1).fillna(False)
-    post_squeeze_bars = (~squeeze_on).groupby(squeeze_on.cumsum()).cumsum().fillna(0).astype(int)
-    release_decay = pd.Series(
-        np.where(
-            (~squeeze_on)
-            & (prior_squeeze_duration >= config["min_squeeze_bars"])
-            & (post_squeeze_bars <= config["release_decay_bars"]),
-            (config["release_decay_bars"] + 1 - post_squeeze_bars) / config["release_decay_bars"],
-            0.0,
-        ),
-        index=data.index,
-    )
-
-    momentum_raw = (close - ema_20) / atr_14.replace(0.0, np.nan)
-    momentum = _ema(momentum_raw, 5)
-    acceleration = _ema(momentum.diff(), 3)
-    trend_raw = (ema_20 - ema_50) / atr_20.replace(0.0, np.nan)
-    rvol = volume / volume.rolling(window=20, min_periods=20).mean()
-
-    momentum_z = _causal_rolling_zscore(momentum, config["z_window"])
-    acceleration_z = _causal_rolling_zscore(acceleration, config["z_window"])
-    trend_z = _causal_rolling_zscore(trend_raw, config["z_window"])
-    rvol_z = _causal_rolling_zscore(np.log(rvol.clip(lower=1e-6)), config["z_window"])
-
-    regime_slope = ema_200.pct_change(config["regime_window"])
-    regime_distance = (ema_50 - ema_200) / atr_20.replace(0.0, np.nan)
-    regime = np.select(
-        [
-            (close > ema_200) & (ema_50 > ema_200) & (regime_slope > 0),
-            (close < ema_200) & (ema_50 < ema_200) & (regime_slope < 0),
-        ],
-        ["Bull", "Bear"],
-        default="Range",
-    )
-
-    directional_raw = (
-        weights["mom"] * momentum_z.clip(-3, 3)
-        + weights["acc"] * acceleration_z.clip(-3, 3)
-        + weights["trend"] * trend_z.clip(-3, 3)
-        + weights["vol"] * rvol_z.clip(-3, 3) * np.sign(momentum_z.fillna(0.0))
-    )
-    regime_bias = np.where(
-        regime == "Bull",
-        0.18 + regime_distance.clip(lower=0, upper=2).fillna(0.0) * 0.08,
-        np.where(
-            regime == "Bear",
-            -0.18 + regime_distance.clip(lower=-2, upper=0).fillna(0.0) * 0.08,
-            0.0,
-        ),
-    )
-    release_bias = np.sign(momentum_z.fillna(0.0)) * 0.25 * release_decay
-    compression_drag = np.where(
-        squeeze_on,
-        -0.10 * np.sign(momentum_z.fillna(0.0)) * momentum_z.abs().clip(0, 1.5),
-        0.0,
-    )
-    setup_score = pd.Series(
-        50.0 + 42.0 * np.tanh((directional_raw + regime_bias + release_bias + compression_drag) / 2.2),
-        index=data.index,
-    ).clip(0, 100)
-
-    volume_quality = volume.notna().rolling(window=40, min_periods=10).mean()
-    confidence = (
-        0.55
-        + 0.20 * np.minimum(momentum_z.abs().fillna(0.0), 2.0) / 2.0
-        + 0.15 * np.minimum(trend_z.abs().fillna(0.0), 2.0) / 2.0
-        + 0.10 * np.minimum(np.abs(setup_score - 50.0), 35.0) / 35.0
-    ).clip(0, 1)
-
-    data["EMA20"] = ema_20
-    data["EMA50"] = ema_50
-    data["EMA200"] = ema_200
-    data["ATR14"] = atr_14
-    data["NATR"] = natr
-    data["BBUpper"] = bb_upper
-    data["BBLower"] = bb_lower
-    data["KCUpper"] = kc_upper
-    data["KCLower"] = kc_lower
-    data["SqueezeOn"] = squeeze_on
-    data["SqueezeDuration"] = squeeze_duration
-    data["SqueezeFired"] = squeeze_fired
-    data["ReleaseDecay"] = release_decay
-    data["Momentum"] = momentum
-    data["Acceleration"] = acceleration
-    data["TrendRaw"] = trend_raw
-    data["MomentumZ"] = momentum_z
-    data["AccelerationZ"] = acceleration_z
-    data["TrendZ"] = trend_z
-    data["RVOL"] = rvol
-    data["RVOLZ"] = rvol_z
-    data["SetupScore"] = setup_score
-    data["Regime"] = regime
-    data["RegimeSlope"] = regime_slope
-    data["RegimeDistance"] = regime_distance
-    data["Confidence"] = confidence
-    data["VolumeQuality"] = volume_quality
-    data["Bias"] = data["SetupScore"].apply(_bias_label)
-
-    data["Setup"] = [
-        _setup_label(regime_value, squeeze_value, fired_value, momentum_value, accel_value, rvol_value, score_value)
-        for regime_value, squeeze_value, fired_value, momentum_value, accel_value, rvol_value, score_value in zip(
-            data["Regime"],
-            data["SqueezeOn"],
-            data["SqueezeFired"],
-            data["MomentumZ"].fillna(0.0),
-            data["AccelerationZ"].fillna(0.0),
-            data["RVOL"].fillna(0.0),
-            data["SetupScore"].fillna(50.0),
-        )
-    ]
-
-    return data.dropna(
-        subset=[
-            "EMA20",
-            "EMA200",
-            "ATR14",
-            "MomentumZ",
-            "AccelerationZ",
-            "TrendZ",
-            "RVOL",
-            "SetupScore",
-            "Confidence",
-        ]
-    )
-
-
-def build_overview_chart(symbol: str, df: pd.DataFrame) -> go.Figure:
-    fig = make_subplots(
-        rows=4,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.04,
-        row_heights=[0.43, 0.17, 0.22, 0.18],
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["Close"],
-            mode="lines",
-            line=dict(color="#EAF2FF", width=2),
-            name="Close",
-            hovertemplate="%{x}<br>Close=%{y:,.2f}<extra></extra>",
-        ),
-        row=1,
         col=1,
     )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA20"],
-            mode="lines",
-            line=dict(color="#00E5FF", width=1.5),
-            name="EMA20",
-            hovertemplate="%{x}<br>EMA20=%{y:,.2f}<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA50"],
-            mode="lines",
-            line=dict(color="#00FFAA", width=1.25, dash="dot"),
-            name="EMA50",
-            hovertemplate="%{x}<br>EMA50=%{y:,.2f}<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA200"],
-            mode="lines",
-            line=dict(color="#FF9F43", width=1.4),
-            name="EMA200",
-            hovertemplate="%{x}<br>EMA200=%{y:,.2f}<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-
-    release_points = df[df["SqueezeFired"]]
-    if not release_points.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=release_points.index,
-                y=release_points["Close"],
-                mode="markers",
-                marker=dict(
-                    size=9,
-                    color=np.where(release_points["MomentumZ"] >= 0, "#00FFAA", "#FF5C5C"),
-                    line=dict(color="#0F0F0F", width=1),
-                    symbol="diamond",
-                ),
-                name="Release",
-                hovertemplate="%{x}<br>Release price=%{y:,.2f}<extra></extra>",
-            ),
-            row=1,
-            col=1,
-        )
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["SetupScore"],
-            mode="lines",
-            line=dict(color="#D5DEEB", width=2),
-            fill="tozeroy",
-            fillcolor="rgba(213, 222, 235, 0.08)",
-            name="Setup Score",
-            hovertemplate="%{x}<br>Score=%{y:.1f}<extra></extra>",
-        ),
-        row=2,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["MomentumZ"],
-            mode="lines",
-            line=dict(color="#00FFAA", width=2),
-            name="Momentum Z",
-            hovertemplate="%{x}<br>Momentum Z=%{y:.2f}<extra></extra>",
-        ),
-        row=3,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["AccelerationZ"],
-            mode="lines",
-            line=dict(color="#4C7DFF", width=1.7),
-            name="Acceleration Z",
-            hovertemplate="%{x}<br>Acceleration Z=%{y:.2f}<extra></extra>",
-        ),
-        row=3,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["TrendZ"],
-            mode="lines",
-            line=dict(color="#FF9F43", width=1.3, dash="dot"),
-            name="Trend Z",
-            hovertemplate="%{x}<br>Trend Z=%{y:.2f}<extra></extra>",
-        ),
-        row=3,
-        col=1,
-    )
-    fig.add_trace(
-        go.Bar(
-            x=df.index,
-            y=df["RVOL"],
-            marker=dict(
-                color=np.where(df["RVOL"] >= 1.0, "rgba(0, 229, 255, 0.65)", "rgba(120, 130, 140, 0.45)")
-            ),
-            name="RVOL",
-            hovertemplate="%{x}<br>RVOL=%{y:.2f}<extra></extra>",
-        ),
-        row=4,
-        col=1,
-    )
-
-    for start, end in _squeeze_ranges(df.index, df["SqueezeOn"]):
-        for row in (1, 2, 3, 4):
-            fig.add_vrect(
-                x0=start,
-                x1=end,
-                fillcolor="rgba(76, 125, 255, 0.08)",
-                line_width=0,
-                row=row,
-                col=1,
-            )
-
-    fig.add_hline(y=50, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
-    fig.add_hline(y=65, line=dict(color="rgba(0,255,170,0.18)", width=1, dash="dash"), row=2, col=1)
-    fig.add_hline(y=35, line=dict(color="rgba(255,92,92,0.18)", width=1, dash="dash"), row=2, col=1)
-    fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.16)", width=1), row=3, col=1)
-    fig.add_hline(y=2, line=dict(color="rgba(0,255,170,0.12)", width=1, dash="dash"), row=3, col=1)
-    fig.add_hline(y=-2, line=dict(color="rgba(255,92,92,0.12)", width=1, dash="dash"), row=3, col=1)
-    fig.add_hline(y=1, line=dict(color="rgba(255,255,255,0.10)", width=1, dash="dash"), row=4, col=1)
-
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor="#0F0F0F",
         plot_bgcolor="#0F0F0F",
-        height=940,
-        margin=dict(l=50, r=40, t=40, b=40),
-        title=dict(text=f"{symbol} deep inspection", font=dict(size=18, color="#EAF2FF")),
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0.0),
+        height=620,
+        margin=dict(l=40, r=30, t=40, b=30),
+        title=dict(text="Backtest Equity Curve", font=dict(size=18, color="#EAF2FF")),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
-    fig.update_xaxes(showgrid=False, tickfont=dict(size=11, color="#C7D0DB"))
-    fig.update_yaxes(showgrid=False, tickfont=dict(size=11, color="#C7D0DB"))
-    fig.update_yaxes(title="Price", row=1, col=1)
-    fig.update_yaxes(title="Score", row=2, col=1, range=[0, 100])
-    fig.update_yaxes(title="Z-Score", row=3, col=1, range=[-3.5, 3.5])
-    fig.update_yaxes(title="RVOL", row=4, col=1)
-    return fig
-
-
-def build_scatter_chart(results: pd.DataFrame) -> go.Figure:
-    fig = go.Figure()
-    fig.add_shape(type="rect", x0=0, y0=0, x1=3.5, y1=3.5, fillcolor="rgba(0, 255, 170, 0.04)", line_width=0)
-    fig.add_shape(type="rect", x0=-3.5, y0=-3.5, x1=0, y1=0, fillcolor="rgba(255, 92, 92, 0.04)", line_width=0)
-
-    fig.add_trace(
-        go.Scatter(
-            x=results["Momentum Z"],
-            y=results["Acceleration Z"],
-            mode="markers+text",
-            text=results["Asset"],
-            textposition="top center",
-            marker=dict(
-                size=(results["RVOL"].clip(lower=0.6, upper=3.0) * 12).tolist(),
-                color=results["Setup Score"],
-                colorscale=[
-                    [0.0, "#FF5C5C"],
-                    [0.35, "#FF9F43"],
-                    [0.50, "#7A869A"],
-                    [0.65, "#00B8D9"],
-                    [1.0, "#00FFAA"],
-                ],
-                cmin=0,
-                cmax=100,
-                symbol=[_regime_symbol(value) for value in results["Regime"]],
-                line=dict(color="#0F0F0F", width=1),
-                colorbar=dict(title="Score", tickvals=[20, 50, 80]),
-            ),
-            customdata=np.stack(
-                [
-                    results["Setup"],
-                    results["Regime"],
-                    results["Setup Score"],
-                    results["RVOL"],
-                    results["Trend Z"],
-                    results["Confidence"],
-                    results["Squeeze Bars"],
-                    results["Data Health"],
-                ],
-                axis=1,
-            ),
-            hovertemplate=(
-                "%{text}<br>"
-                "Momentum Z=%{x:.2f}<br>"
-                "Acceleration Z=%{y:.2f}<br>"
-                "Setup=%{customdata[0]}<br>"
-                "Regime=%{customdata[1]}<br>"
-                "Score=%{customdata[2]:.1f}<br>"
-                "RVOL=%{customdata[3]:.2f}<br>"
-                "Trend Z=%{customdata[4]:.2f}<br>"
-                "Confidence=%{customdata[5]:.2f}<br>"
-                "Squeeze Bars=%{customdata[6]}<br>"
-                "Data=%{customdata[7]}<extra></extra>"
-            ),
-            showlegend=False,
-        )
-    )
-    fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.18)", width=1))
-    fig.add_vline(x=0, line=dict(color="rgba(255,255,255,0.18)", width=1))
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0F0F0F",
-        plot_bgcolor="#0F0F0F",
-        height=560,
-        margin=dict(l=40, r=30, t=30, b=40),
-        title=dict(text="Rotation Radar", font=dict(size=18, color="#EAF2FF")),
-    )
-    fig.update_xaxes(title="Momentum Z", showgrid=False, range=[-3.5, 3.5])
-    fig.update_yaxes(title="Acceleration Z", showgrid=False, range=[-3.5, 3.5])
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(title="Equity", showgrid=False, row=1, col=1)
+    fig.update_yaxes(title="Drawdown %", showgrid=False, row=2, col=1)
     return fig
 
 
@@ -966,6 +28,8 @@ def render_signal_board(df: pd.DataFrame) -> None:
                 f'<div class="signal-score-pill" style="background:{fill};">{row_data["Setup Score"]:.1f}</div></div>'
                 f'<div class="signal-card-setup">{html.escape(str(row_data["Setup"]))}</div>'
                 f'<div class="signal-card-meta">'
+                f'<span class="signal-badge badge-neutral">{html.escape(str(row_data["Asset Class"]))}</span>'
+                f'<span class="signal-badge {_badge_class(str(row_data["Alert"]), "Alert")}">{html.escape(str(row_data["Alert"]))}</span>'
                 f'<span class="signal-badge {_badge_class(str(row_data["Regime"]), "Regime")}">{html.escape(str(row_data["Regime"]))}</span>'
                 f'<span class="signal-badge {_badge_class(str(row_data["Bias"]), "Bias")}">{html.escape(str(row_data["Bias"]))}</span>'
                 f'<span class="signal-badge {_badge_class(str(row_data["Squeeze"]), "Squeeze")}">Squeeze {html.escape(str(row_data["Squeeze"]))}</span>'
@@ -993,7 +57,9 @@ def render_signal_board(df: pd.DataFrame) -> None:
                 "<tr>"
                 f'<td class="rank-cell">{rank:02d}</td>'
                 f'<td class="asset-cell">{html.escape(str(row_data["Asset"]))}</td>'
+                f'<td>{html.escape(str(row_data["Asset Class"]))}</td>'
                 f'<td><span class="signal-badge {_badge_class(str(row_data["Setup"]), "Setup")}">{html.escape(str(row_data["Setup"]))}</span></td>'
+                f'<td><span class="signal-badge {_badge_class(str(row_data["Alert"]), "Alert")}">{html.escape(str(row_data["Alert"]))}</span></td>'
                 f'<td><span class="signal-badge {_badge_class(str(row_data["Bias"]), "Bias")}">{html.escape(str(row_data["Bias"]))}</span></td>'
                 f'<td><span class="signal-badge {_badge_class(str(row_data["Regime"]), "Regime")}">{html.escape(str(row_data["Regime"]))}</span></td>'
                 f'<td class="score-cell"><div class="score-shell"><div class="score-fill" style="width:{score:.1f}%; background:{fill};"></div></div><div class="score-text">{score:.1f}/100</div></td>'
@@ -1015,7 +81,7 @@ def render_signal_board(df: pd.DataFrame) -> None:
         "</div></div>"
         f'<div class="signal-board-grid">{"".join(top_cards_html)}</div>'
         '<div class="signal-table"><table><thead><tr>'
-        "<th>#</th><th>Asset</th><th>Setup</th><th>Bias</th><th>Regime</th><th>Score</th>"
+        "<th>#</th><th>Asset</th><th>Class</th><th>Setup</th><th>Alert</th><th>Bias</th><th>Regime</th><th>Score</th>"
         "<th>Momentum</th><th>Accel</th><th>Trend</th><th>RVOL</th><th>SQZ</th><th>Data</th>"
         f'</tr></thead><tbody>{"".join(rows_html)}</tbody></table></div></div>'
     )
@@ -1027,6 +93,9 @@ with st.sidebar:
         st.header("Radar Controls")
         watchlist_text = st.text_area("Watchlist", DEFAULT_WATCHLIST, height=120)
         timeframe = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=2)
+        selected_asset_classes = st.multiselect("Asset Classes", ASSET_CLASS_OPTIONS, default=ASSET_CLASS_OPTIONS)
+        long_threshold = st.slider("Long Threshold", min_value=52, max_value=75, value=57, step=1)
+        short_threshold = st.slider("Short Threshold", min_value=25, max_value=48, value=43, step=1)
         top_n = st.slider("Rows displayed", min_value=4, max_value=20, value=10, step=1)
         submitted = st.form_submit_button("Analyze Market")
 
@@ -1036,6 +105,8 @@ if run_analysis:
     tickers = _clean_watchlist(watchlist_text)
     results_rows: list[dict[str, object]] = []
     histories: dict[str, pd.DataFrame] = {}
+    backtests: list[dict[str, object]] = []
+    trades_log: list[pd.DataFrame] = []
     failures: list[str] = []
     config = TIMEFRAME_CONFIG[timeframe]
 
@@ -1054,7 +125,7 @@ if run_analysis:
                 continue
 
             try:
-                enriched = calculate_signals(raw, timeframe)
+                enriched = calculate_signals(raw, timeframe, float(long_threshold), float(short_threshold))
             except Exception as exc:
                 failures.append(f"{symbol}: signal engine failed ({exc})")
                 continue
@@ -1064,16 +135,20 @@ if run_analysis:
                 continue
 
             last = enriched.iloc[-1]
+            backtest = _backtest_summary(enriched, timeframe)
+            trade_log = _backtest_trade_log(enriched, timeframe)
             volume_quality = float(last["VolumeQuality"]) if pd.notna(last["VolumeQuality"]) else 0.0
             data_health = _data_health_label(volume_quality, len(raw), config["min_history"])
             histories[symbol] = enriched.tail(config["display_bars"])
             results_rows.append(
                 {
                     "Asset": symbol,
+                    "Asset Class": _classify_asset(symbol),
                     "Price": float(last["Close"]),
                     "Regime": str(last["Regime"]),
                     "Bias": str(last["Bias"]),
                     "Setup": str(last["Setup"]),
+                    "Alert": str(last["Alert"]),
                     "Setup Score": float(last["SetupScore"]),
                     "Confidence": float(last["Confidence"]),
                     "Squeeze": "ON" if bool(last["SqueezeOn"]) else "OFF",
@@ -1083,7 +158,24 @@ if run_analysis:
                     "Trend Z": float(last["TrendZ"]),
                     "RVOL": float(last["RVOL"]),
                     "NATR %": float(last["NATR"]),
+                    "BT Signals": int(backtest["signals"]),
+                    "BT Hit Rate": float(backtest["hit_rate"]) if pd.notna(backtest["hit_rate"]) else np.nan,
+                    "BT Avg %": float(backtest["avg_return"] * 100.0) if pd.notna(backtest["avg_return"]) else np.nan,
                     "Data Health": data_health,
+                }
+            )
+            if not trade_log.empty:
+                trade_log = trade_log.copy()
+                trade_log["Asset"] = symbol
+                trade_log["Asset Class"] = _classify_asset(symbol)
+                trades_log.append(trade_log)
+            backtests.append(
+                {
+                    "Asset": symbol,
+                    "Asset Class": _classify_asset(symbol),
+                    "Signals": int(backtest["signals"]),
+                    "Hit Rate": float(backtest["hit_rate"]) if pd.notna(backtest["hit_rate"]) else np.nan,
+                    "Avg Return %": float(backtest["avg_return"] * 100.0) if pd.notna(backtest["avg_return"]) else np.nan,
                 }
             )
 
@@ -1092,19 +184,42 @@ if run_analysis:
         results_df["Directional Edge"] = (results_df["Setup Score"] - 50.0).abs()
         results_df["Ranking Score"] = results_df["Directional Edge"] * (0.75 + 0.25 * results_df["Confidence"])
         results_df = results_df.sort_values(["Ranking Score", "Setup Score"], ascending=[False, False]).reset_index(drop=True)
-
+        results_df["Class Rank"] = results_df.groupby("Asset Class").cumcount() + 1
     st.session_state["alpha_momentum_results"] = results_df
     st.session_state["alpha_momentum_histories"] = histories
+    st.session_state["alpha_momentum_backtests"] = pd.DataFrame(backtests)
+    st.session_state["alpha_momentum_trades"] = pd.concat(trades_log, ignore_index=True) if trades_log else pd.DataFrame()
     st.session_state["alpha_momentum_failures"] = failures
     st.session_state["alpha_momentum_timeframe"] = timeframe
+    st.session_state["alpha_momentum_asset_classes"] = selected_asset_classes
+    st.session_state["alpha_momentum_long_threshold"] = float(long_threshold)
+    st.session_state["alpha_momentum_short_threshold"] = float(short_threshold)
 
 results_df = st.session_state.get("alpha_momentum_results", pd.DataFrame())
 histories = st.session_state.get("alpha_momentum_histories", {})
+backtest_df = st.session_state.get("alpha_momentum_backtests", pd.DataFrame())
+trades_df = st.session_state.get("alpha_momentum_trades", pd.DataFrame())
 failures = st.session_state.get("alpha_momentum_failures", [])
 active_timeframe = st.session_state.get("alpha_momentum_timeframe", timeframe)
-
+active_asset_classes = st.session_state.get("alpha_momentum_asset_classes", selected_asset_classes)
+active_long_threshold = float(st.session_state.get("alpha_momentum_long_threshold", long_threshold))
+active_short_threshold = float(st.session_state.get("alpha_momentum_short_threshold", short_threshold))
 results_df = _ensure_results_schema(results_df)
+results_df["Directional Edge"] = (results_df["Setup Score"] - 50.0).abs()
+results_df["Ranking Score"] = results_df["Directional Edge"] * (0.75 + 0.25 * results_df["Confidence"])
+results_df = results_df.sort_values(["Ranking Score", "Setup Score"], ascending=[False, False]).reset_index(drop=True)
+results_df["Class Rank"] = results_df.groupby("Asset Class").cumcount() + 1
 st.session_state["alpha_momentum_results"] = results_df
+
+if active_asset_classes:
+    filtered_results_df = results_df[results_df["Asset Class"].isin(active_asset_classes)].copy()
+else:
+    filtered_results_df = pd.DataFrame()
+
+if isinstance(backtest_df, pd.DataFrame) and not backtest_df.empty and active_asset_classes:
+    backtest_df = backtest_df[backtest_df["Asset Class"].isin(active_asset_classes)].copy()
+if isinstance(trades_df, pd.DataFrame) and not trades_df.empty and active_asset_classes:
+    trades_df = trades_df[trades_df["Asset Class"].isin(active_asset_classes)].copy()
 
 if results_df.empty:
     st.warning("No assets returned enough clean data to compute the matrix.")
@@ -1114,27 +229,53 @@ if results_df.empty:
                 st.write(f"- {failure}")
     st.stop()
 
-long_count = int((results_df["Setup Score"] >= 57).sum())
-short_count = int((results_df["Setup Score"] <= 43).sum())
-compression_count = int((results_df["Setup"] == "Compression").sum())
-leader = results_df.iloc[0]
-breadth = ((results_df["Setup Score"] > 57).sum() - (results_df["Setup Score"] < 43).sum()) / max(len(results_df), 1)
+if filtered_results_df.empty:
+    st.warning("No assets match the selected asset-class filter.")
+    st.stop()
+
+long_count = int((filtered_results_df["Setup Score"] >= active_long_threshold).sum())
+short_count = int((filtered_results_df["Setup Score"] <= active_short_threshold).sum())
+compression_count = int((filtered_results_df["Setup"] == "Compression").sum())
+long_entry_count = int((filtered_results_df["Alert"] == "Long Entry").sum())
+short_entry_count = int((filtered_results_df["Alert"] == "Short Entry").sum())
+exit_count = int(filtered_results_df["Alert"].isin(["Long Exit", "Short Exit"]).sum())
+leader = filtered_results_df.iloc[0]
+breadth = ((filtered_results_df["Setup Score"] > active_long_threshold).sum() - (filtered_results_df["Setup Score"] < active_short_threshold).sum()) / max(len(filtered_results_df), 1)
 breadth_label = "Bullish" if breadth > 0.15 else "Bearish" if breadth < -0.15 else "Balanced"
+class_leaders = (
+    filtered_results_df.sort_values(["Ranking Score", "Setup Score"], ascending=[False, False])
+    .drop_duplicates(subset=["Asset Class"])
+    .reset_index(drop=True)
+)
 
 c1, c2, c3, c4 = st.columns([1, 1, 1, 1.4])
-c1.metric("Assets Scanned", f"{len(results_df)}")
+c1.metric("Assets Shown", f"{len(filtered_results_df)}/{len(results_df)}")
 c2.metric("Long Bias", f"{long_count}")
 c3.metric("Short Bias", f"{short_count}")
-c4.metric("Top Priority", f"{leader['Asset']} ({leader['Setup']})")
+c4.metric("Top Alert", f"{leader['Asset']} ({leader['Alert']})")
 
 d1, d2, d3, d4 = st.columns([1, 1, 1.2, 1])
 d1.metric("Compressions", f"{compression_count}")
 d2.metric("Timeframe", active_timeframe)
 d3.metric("Breadth", breadth_label, f"{breadth:+.0%}")
-d4.metric("Median Confidence", f"{results_df['Confidence'].median():.2f}")
+d4.metric("Median Confidence", f"{filtered_results_df['Confidence'].median():.2f}")
+
+e1, e2, e3, e4 = st.columns(4)
+e1.metric("Long Entries", f"{long_entry_count}")
+e2.metric("Short Entries", f"{short_entry_count}")
+e3.metric("Exit Alerts", f"{exit_count}")
+e4.metric("Thresholds", f"{active_long_threshold:.0f}/{active_short_threshold:.0f}")
+
+if not class_leaders.empty:
+    st.subheader("Class Leaders")
+    for start in range(0, len(class_leaders), 4):
+        chunk = class_leaders.iloc[start : start + 4]
+        cols = st.columns(len(chunk))
+        for col, (_, row) in zip(cols, chunk.iterrows()):
+            col.metric(str(row["Asset Class"]), str(row["Asset"]), f'{row["Alert"]} | {row["Setup Score"]:.1f}')
 
 display_df = (
-    results_df.drop(columns=["Directional Edge", "Ranking Score"], errors="ignore")
+    filtered_results_df.drop(columns=["Directional Edge", "Ranking Score"], errors="ignore")
     .head(top_n)
     .copy()
 )
@@ -1149,6 +290,48 @@ st.download_button(
 )
 
 st.plotly_chart(build_scatter_chart(display_df), use_container_width=True, config={"displayModeBar": False})
+
+valid_backtests = pd.DataFrame()
+if isinstance(backtest_df, pd.DataFrame) and not backtest_df.empty:
+    valid_backtests = backtest_df.copy()
+    for column, default_value in {"Asset Class": "Unknown", "Signals": 0, "Hit Rate": np.nan, "Avg Return %": np.nan}.items():
+        if column not in valid_backtests.columns:
+            valid_backtests[column] = default_value
+    for column in ["Signals", "Hit Rate", "Avg Return %"]:
+        if column in valid_backtests.columns:
+            valid_backtests[column] = pd.to_numeric(valid_backtests[column], errors="coerce")
+    valid_backtests = valid_backtests[valid_backtests["Signals"].fillna(0) > 0]
+
+if not valid_backtests.empty:
+    total_signals = int(valid_backtests["Signals"].sum())
+    weighted_hit_rate = float((valid_backtests["Hit Rate"] * valid_backtests["Signals"]).sum() / total_signals)
+    weighted_avg_return = float((valid_backtests["Avg Return %"] * valid_backtests["Signals"]).sum() / total_signals)
+    best_backtest_row = valid_backtests.sort_values("Avg Return %", ascending=False).iloc[0]
+
+    st.subheader("Backtest Snapshot")
+    b1, b2, b3, b4 = st.columns(4)
+    b1.metric("Signals", f"{total_signals}")
+    b2.metric("Hit Rate", f"{weighted_hit_rate:.1%}")
+    b3.metric("Avg Signal Return", f"{weighted_avg_return:+.2f}%")
+    b4.metric("Best Asset", str(best_backtest_row["Asset"]), f'{best_backtest_row["Avg Return %"]:+.2f}%')
+
+    class_backtest_rows: list[dict[str, object]] = []
+    for asset_class, group in valid_backtests.groupby("Asset Class", dropna=False):
+        group_signals = int(group["Signals"].sum())
+        class_backtest_rows.append(
+            {
+                "Asset Class": asset_class,
+                "Signals": group_signals,
+                "Hit Rate": (group["Hit Rate"] * group["Signals"]).sum() / max(group_signals, 1),
+                "Avg Return %": (group["Avg Return %"] * group["Signals"]).sum() / max(group_signals, 1),
+            }
+        )
+    class_backtest = pd.DataFrame(class_backtest_rows)
+    st.dataframe(class_backtest, use_container_width=True, hide_index=True)
+    if isinstance(trades_df, pd.DataFrame) and not trades_df.empty:
+        st.plotly_chart(build_equity_curve_chart(trades_df), use_container_width=True, config={"displayModeBar": False})
+else:
+    st.info("Backtest snapshot will appear after the current scan generates entry signals.")
 
 selected_symbol = st.selectbox("Inspect asset", display_df["Asset"].tolist(), index=0)
 selected_history = histories.get(selected_symbol)
@@ -1167,6 +350,12 @@ with st.expander("Methodology", expanded=False):
 - `Momentum Z`, `Acceleration Z`, `Trend Z`, and `RVOL Z` use a causal rolling baseline that only looks at prior bars.
 - `Squeeze` uses Bollinger Bands inside Keltner Channels, and the post-release boost only survives for a short decay window after a real compression.
 - `Regime` now requires price above or below `EMA200`, confirmation from `EMA50`, and a slower `EMA200` slope so it does not flip on one noisy bar.
+- `Alerts` convert the score into explicit `Long Entry`, `Short Entry`, `Exit`, and `Watch` states using score transitions plus regime confirmation.
+- `Asset Class` labels let the dashboard rank crypto, futures, indices, and equities without losing class context.
+- `Thresholds` are configurable from the sidebar, so long/short interpretation can be tightened or relaxed without changing the code.
+- `Asset-class filters` let you inspect only the slices of the market you want while keeping the full scan in memory.
+- `Backtest Snapshot` measures forward returns after entry alerts so you can judge whether the current signal logic has recent follow-through.
+- `Equity Curve` compounds historical alert returns trade by trade, so you can see whether the edge is stable or just episodic.
 - `Setup Score` is bounded from `0` to `100` with `tanh`, which keeps tails informative without letting a single component dominate.
 - `Auto-adjusted` OHLC reduces split and dividend contamination for equities when mixing stocks, futures, and crypto in one watchlist.
 - `Confidence` is a secondary quality readout, not a trading signal. It rewards cleaner trend alignment and stronger directional separation.

@@ -10,17 +10,22 @@ from plotly.subplots import make_subplots
 
 st.set_page_config(page_title="Alpha Momentum Matrix", layout="wide")
 
+DISPLAY_ROWS = 10
+
 st.markdown(
     """
 <style>
     .main { background-color: #0F0F0F; }
+
     div[data-testid='stMetric'] {
         background-color: #161616;
         padding: 16px;
         border-radius: 6px;
         border: 1px solid #2A2A2A;
     }
+
     .stDataFrame { background-color: #161616; border-radius: 6px; }
+
     .signal-board {
         margin-top: 12px;
         padding: 22px;
@@ -31,6 +36,7 @@ st.markdown(
             linear-gradient(180deg, rgba(19, 24, 33, 0.98), rgba(10, 13, 18, 0.98));
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
     }
+
     .signal-board-header {
         display: flex;
         justify-content: space-between;
@@ -38,6 +44,7 @@ st.markdown(
         gap: 16px;
         margin-bottom: 18px;
     }
+
     .signal-board-title {
         color: #EAF2FF;
         font-size: 1.08rem;
@@ -45,22 +52,26 @@ st.markdown(
         letter-spacing: 0.04em;
         text-transform: uppercase;
     }
+
     .signal-board-subtitle {
         color: #8D9AAF;
         font-size: 0.86rem;
     }
+
     .signal-board-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 14px;
         margin-bottom: 18px;
     }
+
     .signal-card {
         padding: 16px 18px;
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.06);
         background: linear-gradient(180deg, rgba(24, 29, 38, 0.96), rgba(14, 17, 24, 0.96));
     }
+
     .signal-card-top {
         display: flex;
         justify-content: space-between;
@@ -68,18 +79,21 @@ st.markdown(
         gap: 12px;
         margin-bottom: 10px;
     }
+
     .signal-rank {
         color: #6E7B91;
         font-size: 0.78rem;
         letter-spacing: 0.12em;
         text-transform: uppercase;
     }
+
     .signal-asset {
         color: #F7FAFF;
         font-size: 1.28rem;
         font-weight: 800;
         line-height: 1.1;
     }
+
     .signal-score-pill {
         min-width: 70px;
         padding: 8px 10px;
@@ -89,18 +103,21 @@ st.markdown(
         font-size: 0.98rem;
         color: #F7FAFF;
     }
+
     .signal-card-setup {
         margin-bottom: 12px;
         color: #D8E2F2;
         font-size: 0.95rem;
         font-weight: 600;
     }
+
     .signal-card-meta {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
         margin-bottom: 12px;
     }
+
     .signal-badge {
         display: inline-flex;
         align-items: center;
@@ -112,36 +129,43 @@ st.markdown(
         letter-spacing: 0.04em;
         border: 1px solid transparent;
     }
+
     .badge-bull {
         color: #7CFFD1;
         background: rgba(0, 255, 170, 0.10);
         border-color: rgba(0, 255, 170, 0.20);
     }
+
     .badge-bear {
         color: #FFB18B;
         background: rgba(255, 92, 92, 0.10);
         border-color: rgba(255, 92, 92, 0.22);
     }
+
     .badge-range {
         color: #C7D0DB;
         background: rgba(141, 154, 175, 0.12);
         border-color: rgba(141, 154, 175, 0.22);
     }
+
     .badge-compression {
         color: #A9BCFF;
         background: rgba(76, 125, 255, 0.12);
         border-color: rgba(76, 125, 255, 0.26);
     }
+
     .badge-neutral {
         color: #D5DEEB;
         background: rgba(199, 208, 219, 0.10);
         border-color: rgba(199, 208, 219, 0.16);
     }
+
     .signal-card-stats {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 10px;
     }
+
     .signal-stat-label {
         color: #7F8A9E;
         font-size: 0.70rem;
@@ -149,21 +173,25 @@ st.markdown(
         letter-spacing: 0.08em;
         margin-bottom: 4px;
     }
+
     .signal-stat-value {
         color: #F3F7FD;
         font-size: 0.98rem;
         font-weight: 700;
     }
+
     .signal-table {
         overflow: hidden;
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.06);
         background: rgba(8, 10, 14, 0.65);
     }
+
     .signal-table table {
         width: 100%;
         border-collapse: collapse;
     }
+
     .signal-table thead th {
         padding: 12px 14px;
         text-align: left;
@@ -174,34 +202,42 @@ st.markdown(
         color: #7F8A9E;
         background: rgba(255, 255, 255, 0.03);
     }
+
     .signal-table tbody tr {
         border-top: 1px solid rgba(255, 255, 255, 0.05);
     }
+
     .signal-table tbody tr:nth-child(odd) {
         background: rgba(255, 255, 255, 0.015);
     }
+
     .signal-table tbody tr:hover {
         background: rgba(76, 125, 255, 0.08);
     }
+
     .signal-table td {
         padding: 14px;
         color: #EAF2FF;
         font-size: 0.95rem;
         vertical-align: middle;
     }
+
     .rank-cell {
         color: #6E7B91;
         font-weight: 700;
         width: 48px;
     }
+
     .asset-cell {
         font-weight: 800;
         font-size: 1.02rem;
         letter-spacing: 0.02em;
     }
+
     .score-cell {
         min-width: 190px;
     }
+
     .score-shell {
         position: relative;
         height: 11px;
@@ -210,18 +246,206 @@ st.markdown(
         background: rgba(255, 255, 255, 0.08);
         margin-bottom: 8px;
     }
+
     .score-fill {
         height: 100%;
         border-radius: 999px;
     }
+
     .score-text {
         font-size: 0.90rem;
         font-weight: 700;
         color: #F7FAFF;
     }
+
     .metric-pos { color: #7CFFD1; font-weight: 700; }
     .metric-neg { color: #FFB18B; font-weight: 700; }
     .metric-flat { color: #D5DEEB; font-weight: 700; }
+
+    section[data-testid="stSidebar"] {
+        background: #090D14;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+        background:
+            radial-gradient(circle at top right, rgba(76, 125, 255, 0.12), transparent 26%),
+            linear-gradient(180deg, #0B1018 0%, #090D14 100%);
+        padding: 26px 18px 28px;
+    }
+
+    section[data-testid="stSidebar"] .radar-shell {
+        padding: 20px 18px 18px;
+        border-radius: 22px;
+        border: 1px solid rgba(76, 125, 255, 0.22);
+        background:
+            radial-gradient(circle at top right, rgba(76, 125, 255, 0.16), transparent 28%),
+            linear-gradient(180deg, rgba(19, 24, 33, 0.98), rgba(10, 13, 18, 0.98));
+        box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
+        margin-bottom: 14px;
+    }
+
+    section[data-testid="stSidebar"] .radar-kicker {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(17, 24, 39, 0.95);
+        border: 1px solid rgba(141, 154, 175, 0.16);
+        color: #9FB0C8;
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        margin-bottom: 16px;
+    }
+
+    section[data-testid="stSidebar"] .radar-title {
+        color: #F5F9FF;
+        font-size: 1.52rem;
+        font-weight: 800;
+        line-height: 1.08;
+        margin-bottom: 8px;
+    }
+
+    section[data-testid="stSidebar"] .radar-subtitle {
+        color: #8190A7;
+        font-size: 0.88rem;
+        line-height: 1.5;
+        margin-bottom: 8px;
+    }
+
+    section[data-testid="stSidebar"] .radar-field-label {
+        color: #A7B4C6;
+        font-size: 0.70rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        margin-top: 14px;
+        margin-bottom: 8px;
+    }
+
+    section[data-testid="stSidebar"] .watchlist-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    section[data-testid="stSidebar"] .watchlist-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+    section[data-testid="stSidebar"] .watchlist-preview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+        margin-bottom: 4px;
+    }
+
+    section[data-testid="stSidebar"] .watchlist-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(28, 37, 54, 0.95);
+        border: 1px solid rgba(141, 154, 175, 0.16);
+        color: #C8D2E0;
+        font-size: 0.75rem;
+        font-weight: 700;
+    }
+
+    section[data-testid="stSidebar"] .display-note {
+        margin-top: 10px;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(13, 18, 27, 0.92);
+        border: 1px solid rgba(30, 42, 61, 0.96);
+        color: #8EA0B7;
+        font-size: 0.80rem;
+        line-height: 1.45;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stTextArea"] textarea {
+        min-height: 132px !important;
+        border-radius: 18px !important;
+        background: #0C1119 !important;
+        border: 1px solid #1F2B3D !important;
+        color: #EAF2FF !important;
+        font-family: Consolas, "SFMono-Regular", Menlo, monospace !important;
+        font-size: 0.95rem !important;
+        line-height: 1.55 !important;
+        padding-top: 16px !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stTextArea"] textarea:focus {
+        border-color: rgba(0, 229, 255, 0.48) !important;
+        box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.18) !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stRadio"] {
+        margin-top: 2px;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stRadio"] > div[role="radiogroup"] {
+        display: flex;
+        gap: 10px;
+        padding: 8px;
+        border-radius: 20px;
+        border: 1px solid #1E2A3D;
+        background: #0D121B;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label {
+        flex: 1 1 0;
+        margin: 0 !important;
+        padding: 10px 0 !important;
+        border-radius: 16px;
+        background: #111927;
+        border: 1px solid transparent;
+        justify-content: center;
+        transition: 0.2s ease;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label p {
+        color: #9FB0C8 !important;
+        font-size: 0.96rem !important;
+        font-weight: 800 !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+        background: rgba(0, 214, 143, 0.14);
+        border-color: rgba(0, 229, 255, 0.42);
+        box-shadow: inset 0 0 0 1px rgba(76, 125, 255, 0.10);
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p {
+        color: #F5F9FF !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
+        width: 100%;
+        margin-top: 18px;
+        min-height: 52px;
+        border-radius: 18px;
+        border: none;
+        background: linear-gradient(90deg, #00D68F, #00A3FF);
+        color: #06131C;
+        font-size: 1rem;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        box-shadow: 0 18px 32px rgba(0, 0, 0, 0.26);
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button:hover {
+        filter: brightness(1.04);
+    }
+
     @media (max-width: 1100px) {
         .signal-board-grid { grid-template-columns: 1fr; }
         .signal-card-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1023,142 +1247,157 @@ def render_signal_board(df: pd.DataFrame) -> None:
 
 
 with st.sidebar:
+    st.markdown(
+        """
+        <div class="radar-shell">
+            <div class="radar-kicker">Control Node</div>
+            <div class="radar-title">Radar Controls</div>
+            <div class="radar-subtitle">Institutional command panel with clean hierarchy</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     with st.form("alpha_momentum_controls"):
-        st.header("Radar Controls")
-        watchlist_text = st.text_area("Watchlist", DEFAULT_WATCHLIST, height=120)
-        timeframe = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=2)
-        top_n = st.slider("Rows displayed", min_value=4, max_value=20, value=10, step=1)
-        submitted = st.form_submit_button("Analyze Market")
+        st.markdown('<div class="radar-field-label">Watchlist</div>', unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div class="watchlist-head">
+                <span class="watchlist-dot" style="background:#00E5FF;"></span>
+                <span class="watchlist-dot" style="background:#00D68F;"></span>
+                <span class="watchlist-dot" style="background:#FF9F43;"></span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        watchlist_text = st.text_area("Watchlist", DEFAULT_WATCHLIST, height=120, label_visibility="collapsed")
 
-run_analysis = submitted or "alpha_momentum_results" not in st.session_state
+        preview_tickers = _clean_watchlist(watchlist_text)[:6]
+        preview_html = "".join(
+            f'<span class="watchlist-chip">{html.escape(ticker)}</span>'
+            for ticker in preview_tickers
+        )
+        st.markdown(f'<div class="watchlist-preview">{preview_html}</div>', unsafe_allow_html=True)
 
-if run_analysis:
-    tickers = _clean_watchlist(watchlist_text)
-    results_rows: list[dict[str, object]] = []
-    histories: dict[str, pd.DataFrame] = {}
-    failures: list[str] = []
-    config = TIMEFRAME_CONFIG[timeframe]
+        st.markdown('<div class="radar-field-label">Timeframe</div>', unsafe_allow_html=True)
+        tf = st.radio("Timeframe", ["1h", "4h", "1d"], horizontal=True, index=2, label_visibility="collapsed")
 
-    if not tickers:
-        st.warning("Add at least one ticker to the watchlist.")
-        st.stop()
+        st.markdown(
+            f'<div class="display-note">Display profile fixed at <b>Top {DISPLAY_ROWS}</b> assets for a cleaner, more institutional board.</div>',
+            unsafe_allow_html=True,
+        )
 
-    with st.spinner("Processing squeeze, momentum, trend, and volume structure..."):
-        for symbol in tickers:
-            raw, fetch_error = fetch_price_history(symbol, timeframe)
-            if fetch_error:
-                failures.append(f"{symbol}: {fetch_error}")
-                continue
-            if raw.empty or len(raw) < config["min_history"]:
-                failures.append(f"{symbol}: not enough clean history after normalization")
-                continue
+        btn = st.form_submit_button("Analyze Market")
 
+if "results_df" not in st.session_state:
+    st.session_state["results_df"] = pd.DataFrame()
+if "watchlist" not in st.session_state:
+    st.session_state["watchlist"] = []
+
+if btn:
+    results = []
+    st.session_state["watchlist"] = _clean_watchlist(watchlist_text)
+
+    with st.spinner("Calculating Statistical Edge..."):
+        for symbol in st.session_state["watchlist"]:
             try:
-                enriched = calculate_signals(raw, timeframe)
-            except Exception as exc:
-                failures.append(f"{symbol}: signal engine failed ({exc})")
+                hist, fetch_error = fetch_price_history(symbol, tf)
+                if fetch_error:
+                    continue
+
+                if len(hist) > TIMEFRAME_CONFIG.get(tf, {}).get("min_history", 240):
+                    enriched = calculate_signals(hist, tf)
+                    if enriched.empty:
+                        continue
+                    last_row = enriched.iloc[-1]
+                    results.append(
+                        {
+                            "Asset": symbol,
+                            "Price": float(last_row["Close"]),
+                            "Regime": str(last_row["Regime"]),
+                            "Bias": str(last_row["Bias"]),
+                            "Setup": str(last_row["Setup"]),
+                            "Setup Score": float(last_row["SetupScore"]),
+                            "Confidence": float(last_row["Confidence"]),
+                            "Squeeze": "ON" if bool(last_row["SqueezeOn"]) else "OFF",
+                            "Squeeze Bars": int(last_row["SqueezeDuration"]),
+                            "Momentum Z": float(last_row["MomentumZ"]),
+                            "Acceleration Z": float(last_row["AccelerationZ"]),
+                            "Trend Z": float(last_row["TrendZ"]),
+                            "RVOL": float(last_row["RVOL"]),
+                            "NATR %": float(last_row["NATR"]),
+                            "Data Health": _data_health_label(
+                                float(last_row["VolumeQuality"]) if pd.notna(last_row["VolumeQuality"]) else 0.0,
+                                len(hist),
+                                TIMEFRAME_CONFIG[tf]["min_history"],
+                            ),
+                        }
+                    )
+            except Exception:
                 continue
 
-            if enriched.empty:
-                failures.append(f"{symbol}: indicators could not be computed")
-                continue
+    if results:
+        st.session_state["results_df"] = (
+            pd.DataFrame(results)
+            .sort_values("Setup Score", ascending=False)
+            .reset_index(drop=True)
+        )
+    else:
+        st.warning("No data found.")
 
-            last = enriched.iloc[-1]
-            volume_quality = float(last["VolumeQuality"]) if pd.notna(last["VolumeQuality"]) else 0.0
-            data_health = _data_health_label(volume_quality, len(raw), config["min_history"])
-            histories[symbol] = enriched.tail(config["display_bars"])
-            results_rows.append(
-                {
-                    "Asset": symbol,
-                    "Price": float(last["Close"]),
-                    "Regime": str(last["Regime"]),
-                    "Bias": str(last["Bias"]),
-                    "Setup": str(last["Setup"]),
-                    "Setup Score": float(last["SetupScore"]),
-                    "Confidence": float(last["Confidence"]),
-                    "Squeeze": "ON" if bool(last["SqueezeOn"]) else "OFF",
-                    "Squeeze Bars": int(last["SqueezeDuration"]),
-                    "Momentum Z": float(last["MomentumZ"]),
-                    "Acceleration Z": float(last["AccelerationZ"]),
-                    "Trend Z": float(last["TrendZ"]),
-                    "RVOL": float(last["RVOL"]),
-                    "NATR %": float(last["NATR"]),
-                    "Data Health": data_health,
-                }
-            )
-
-    results_df = pd.DataFrame(results_rows)
-    if not results_df.empty:
-        results_df["Directional Edge"] = (results_df["Setup Score"] - 50.0).abs()
-        results_df["Ranking Score"] = results_df["Directional Edge"] * (0.75 + 0.25 * results_df["Confidence"])
-        results_df = results_df.sort_values(["Ranking Score", "Setup Score"], ascending=[False, False]).reset_index(drop=True)
-
-    st.session_state["alpha_momentum_results"] = results_df
-    st.session_state["alpha_momentum_histories"] = histories
-    st.session_state["alpha_momentum_failures"] = failures
-    st.session_state["alpha_momentum_timeframe"] = timeframe
-
-results_df = st.session_state.get("alpha_momentum_results", pd.DataFrame())
-histories = st.session_state.get("alpha_momentum_histories", {})
-failures = st.session_state.get("alpha_momentum_failures", [])
-active_timeframe = st.session_state.get("alpha_momentum_timeframe", timeframe)
-
+results_df = st.session_state.get("results_df", pd.DataFrame())
 results_df = _ensure_results_schema(results_df)
-st.session_state["alpha_momentum_results"] = results_df
+st.session_state["results_df"] = results_df
 
 if results_df.empty:
-    st.warning("No assets returned enough clean data to compute the matrix.")
-    if failures:
-        with st.expander("Diagnostics", expanded=False):
-            for failure in failures:
-                st.write(f"- {failure}")
+    st.info("Run the scan to populate the matrix.")
     st.stop()
 
-long_count = int((results_df["Setup Score"] >= 57).sum())
-short_count = int((results_df["Setup Score"] <= 43).sum())
-compression_count = int((results_df["Setup"] == "Compression").sum())
-leader = results_df.iloc[0]
+top_asset = results_df.iloc[0]
+market_bias = "BULLISH" if results_df["Setup Score"].mean() > 50 else "BEARISH"
 breadth = ((results_df["Setup Score"] > 57).sum() - (results_df["Setup Score"] < 43).sum()) / max(len(results_df), 1)
 breadth_label = "Bullish" if breadth > 0.15 else "Bearish" if breadth < -0.15 else "Balanced"
 
-c1, c2, c3, c4 = st.columns([1, 1, 1, 1.4])
-c1.metric("Assets Scanned", f"{len(results_df)}")
-c2.metric("Long Bias", f"{long_count}")
-c3.metric("Short Bias", f"{short_count}")
-c4.metric("Top Priority", f"{leader['Asset']} ({leader['Setup']})")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Assets Scanned", f"{len(results_df)}")
+col2.metric("Top Alpha Pick", top_asset["Asset"], f'{top_asset["Setup Score"]:.1f}')
+col3.metric("Market Sentiment", market_bias)
+col4.metric("Breadth", breadth_label, f"{breadth:+.0%}")
 
-d1, d2, d3, d4 = st.columns([1, 1, 1.2, 1])
-d1.metric("Compressions", f"{compression_count}")
-d2.metric("Timeframe", active_timeframe)
-d3.metric("Breadth", breadth_label, f"{breadth:+.0%}")
-d4.metric("Median Confidence", f"{results_df['Confidence'].median():.2f}")
+col5, col6, col7 = st.columns(3)
+col5.metric("Long Bias", int((results_df["Setup Score"] >= 57).sum()))
+col6.metric("Short Bias", int((results_df["Setup Score"] <= 43).sum()))
+col7.metric("Squeeze Alerts", int((results_df["Squeeze"] == "ON").sum()))
 
-display_df = (
-    results_df.drop(columns=["Directional Edge", "Ranking Score"], errors="ignore")
-    .head(top_n)
-    .copy()
-)
+display_df = results_df.head(DISPLAY_ROWS).copy()
+
 render_signal_board(display_df)
 
 csv_bytes = display_df.to_csv(index=False).encode("utf-8")
 st.download_button(
     label="Download current radar as CSV",
     data=csv_bytes,
-    file_name=f"alpha_momentum_matrix_{active_timeframe}.csv",
+    file_name=f"alpha_momentum_matrix_{tf}.csv",
     mime="text/csv",
 )
 
 st.plotly_chart(build_scatter_chart(display_df), use_container_width=True, config={"displayModeBar": False})
 
 selected_symbol = st.selectbox("Inspect asset", display_df["Asset"].tolist(), index=0)
-selected_history = histories.get(selected_symbol)
-if selected_history is not None and not selected_history.empty:
-    st.plotly_chart(build_overview_chart(selected_symbol, selected_history), use_container_width=True, config={"displayModeBar": False})
+selected_history = None
+for candidate in st.session_state.get("watchlist", []):
+    if candidate == selected_symbol:
+        selected_history, _ = fetch_price_history(selected_symbol, tf)
+        break
 
-if failures:
-    with st.expander("Diagnostics", expanded=False):
-        for failure in failures:
-            st.write(f"- {failure}")
+if selected_history is not None and not selected_history.empty:
+    selected_history = calculate_signals(selected_history, tf)
+    if not selected_history.empty:
+        st.plotly_chart(
+            build_overview_chart(selected_symbol, selected_history.tail(TIMEFRAME_CONFIG[tf]["display_bars"])),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
 
 with st.expander("Methodology", expanded=False):
     st.markdown(
@@ -1166,7 +1405,7 @@ with st.expander("Methodology", expanded=False):
 - `4h` is built by explicit `1h -> 4h` OHLCV resampling, so the timeframe is temporally honest instead of a relabeled `1h`.
 - `Momentum Z`, `Acceleration Z`, `Trend Z`, and `RVOL Z` use a causal rolling baseline that only looks at prior bars.
 - `Squeeze` uses Bollinger Bands inside Keltner Channels, and the post-release boost only survives for a short decay window after a real compression.
-- `Regime` now requires price above or below `EMA200`, confirmation from `EMA50`, and a slower `EMA200` slope so it does not flip on one noisy bar.
+- `Regime` requires price above or below `EMA200`, confirmation from `EMA50`, and a slower `EMA200` slope so it does not flip on one noisy bar.
 - `Setup Score` is bounded from `0` to `100` with `tanh`, which keeps tails informative without letting a single component dominate.
 - `Auto-adjusted` OHLC reduces split and dividend contamination for equities when mixing stocks, futures, and crypto in one watchlist.
 - `Confidence` is a secondary quality readout, not a trading signal. It rewards cleaner trend alignment and stronger directional separation.

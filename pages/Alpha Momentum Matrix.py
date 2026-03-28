@@ -565,7 +565,9 @@ def _backtest_trade_log(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     short_signal = df["Alert"] == "Short Entry"
 
     trade_log = pd.DataFrame(index=df.index)
-    trade_log["Direction"] = np.where(long_signal, "Long", np.where(short_signal, "Short", np.nan))
+    trade_log["Direction"] = pd.Series(index=df.index, dtype="object")
+    trade_log.loc[long_signal, "Direction"] = "Long"
+    trade_log.loc[short_signal, "Direction"] = "Short"
     trade_log["Forward Return"] = forward_return
     trade_log["Strategy Return"] = np.where(long_signal, forward_return, np.where(short_signal, -forward_return, np.nan))
     trade_log = trade_log.dropna(subset=["Direction", "Strategy Return"]).copy()
@@ -1104,7 +1106,6 @@ def build_overview_chart(symbol: str, df: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(title="RVOL", row=4, col=1)
     return fig
 
-
 def build_scatter_chart(results: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.add_shape(type="rect", x0=0, y0=0, x1=3.5, y1=3.5, fillcolor="rgba(0, 255, 170, 0.04)", line_width=0)
@@ -1314,6 +1315,7 @@ def render_signal_board(df: pd.DataFrame) -> None:
         f'</tr></thead><tbody>{"".join(rows_html)}</tbody></table></div></div>'
     )
     st.markdown(board_html, unsafe_allow_html=True)
+
 
 with st.sidebar:
     with st.form("alpha_momentum_controls"):

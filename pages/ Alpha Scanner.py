@@ -241,7 +241,6 @@ st.caption(
     "relative volume confirmation, and a stricter structural regime engine."
 )
 
-
 TIMEFRAME_CONFIG = {
     "1h": {
         "download_interval": "60m",
@@ -456,6 +455,59 @@ def _data_health_label(volume_quality: float, bars: int, min_history: int) -> st
     if volume_quality < 0.75:
         return "Mixed"
     return "Healthy"
+
+
+def _ensure_results_schema(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    normalized = df.copy()
+    defaults: dict[str, object] = {
+        "Asset": "",
+        "Price": np.nan,
+        "Regime": "Range",
+        "Bias": "Neutral",
+        "Setup": "Transition",
+        "Setup Score": 50.0,
+        "Confidence": 0.50,
+        "Squeeze": "OFF",
+        "Squeeze Bars": 0,
+        "Momentum Z": 0.0,
+        "Acceleration Z": 0.0,
+        "Trend Z": 0.0,
+        "RVOL": 1.0,
+        "NATR %": np.nan,
+        "Data Health": "Mixed",
+    }
+
+    for column, default_value in defaults.items():
+        if column not in normalized.columns:
+            normalized[column] = default_value
+
+    numeric_columns = [
+        "Price",
+        "Setup Score",
+        "Confidence",
+        "Squeeze Bars",
+        "Momentum Z",
+        "Acceleration Z",
+        "Trend Z",
+        "RVOL",
+        "NATR %",
+    ]
+    for column in numeric_columns:
+        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+
+    normalized["Setup Score"] = normalized["Setup Score"].fillna(50.0)
+    normalized["Confidence"] = normalized["Confidence"].fillna(0.50).clip(0, 1)
+    normalized["Squeeze Bars"] = normalized["Squeeze Bars"].fillna(0).astype(int)
+    normalized["Momentum Z"] = normalized["Momentum Z"].fillna(0.0)
+    normalized["Acceleration Z"] = normalized["Acceleration Z"].fillna(0.0)
+    normalized["Trend Z"] = normalized["Trend Z"].fillna(0.0)
+    normalized["RVOL"] = normalized["RVOL"].fillna(1.0)
+    normalized["Data Health"] = normalized["Data Health"].fillna("Mixed").astype(str)
+
+    return normalized
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1086,6 +1138,7 @@ if run_analysis:
         results_df["Directional Edge"] = (results_df["Setup Score"] - 50.0).abs()
         results_df["Ranking Score"] = results_df["Directional Edge"] * (0.75 + 0.25 * results_df["Confidence"])
         results_df = results_df.sort_values(["Ranking Score", "Setup Score"], ascending=[False, False]).reset_index(drop=True)
+
     st.session_state["alpha_momentum_results"] = results_df
     st.session_state["alpha_momentum_histories"] = histories
     st.session_state["alpha_momentum_failures"] = failures
@@ -1095,6 +1148,9 @@ results_df = st.session_state.get("alpha_momentum_results", pd.DataFrame())
 histories = st.session_state.get("alpha_momentum_histories", {})
 failures = st.session_state.get("alpha_momentum_failures", [])
 active_timeframe = st.session_state.get("alpha_momentum_timeframe", timeframe)
+
+results_df = _ensure_results_schema(results_df)
+st.session_state["alpha_momentum_results"] = results_df
 
 if results_df.empty:
     st.warning("No assets returned enough clean data to compute the matrix.")

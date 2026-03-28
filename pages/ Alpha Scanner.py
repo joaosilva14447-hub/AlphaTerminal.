@@ -1,1179 +1,299 @@
-import html
-
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-import streamlit as st
 import yfinance as yf
+import streamlit as st
+import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# --- 1. PAGE SETUP & INSTITUTIONAL THEME ---
+st.set_page_config(page_title="Alpha Momentum Matrix V5.1", layout="wide")
 
-st.set_page_config(page_title="Alpha Momentum Matrix", layout="wide")
-
-st.markdown(
-    """
+st.markdown("""
 <style>
     .main { background-color: #0F0F0F; }
-    div[data-testid='stMetric'] {
+    div[data-testid="stExpander"] {
         background-color: #161616;
-        padding: 16px;
-        border-radius: 6px;
         border: 1px solid #2A2A2A;
     }
-    .stDataFrame { background-color: #161616; border-radius: 6px; }
-    .signal-board {
-        margin-top: 12px;
-        padding: 22px;
-        border-radius: 18px;
-        border: 1px solid rgba(76, 125, 255, 0.18);
-        background:
-            radial-gradient(circle at top right, rgba(76, 125, 255, 0.16), transparent 28%),
-            linear-gradient(180deg, rgba(19, 24, 33, 0.98), rgba(10, 13, 18, 0.98));
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+    /* Primary Sidebar Button Styling */
+    button[kind="primary"] {
+        background-color: #00FFAA !important;
+        color: #0F0F0F !important;
+        font-weight: 800 !important;
+        border: none !important;
+        letter-spacing: 1px;
     }
-    .signal-board-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 16px;
-        margin-bottom: 18px;
-    }
-    .signal-board-title {
-        color: #EAF2FF;
-        font-size: 1.08rem;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-    }
-    .signal-board-subtitle {
-        color: #8D9AAF;
-        font-size: 0.86rem;
-    }
-    .signal-board-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 14px;
-        margin-bottom: 18px;
-    }
-    .signal-card {
-        padding: 16px 18px;
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        background: linear-gradient(180deg, rgba(24, 29, 38, 0.96), rgba(14, 17, 24, 0.96));
-    }
-    .signal-card-top {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 12px;
-        margin-bottom: 10px;
-    }
-    .signal-rank {
-        color: #6E7B91;
-        font-size: 0.78rem;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-    }
-    .signal-asset {
-        color: #F7FAFF;
-        font-size: 1.28rem;
-        font-weight: 800;
-        line-height: 1.1;
-    }
-    .signal-score-pill {
-        min-width: 70px;
-        padding: 8px 10px;
-        border-radius: 999px;
-        text-align: center;
-        font-weight: 800;
-        font-size: 0.98rem;
-        color: #F7FAFF;
-    }
-    .signal-card-setup {
-        margin-bottom: 12px;
-        color: #D8E2F2;
-        font-size: 0.95rem;
-        font-weight: 600;
-    }
-    .signal-card-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 12px;
-    }
-    .signal-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 0.76rem;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        border: 1px solid transparent;
-    }
-    .badge-bull {
-        color: #7CFFD1;
-        background: rgba(0, 255, 170, 0.10);
-        border-color: rgba(0, 255, 170, 0.20);
-    }
-    .badge-bear {
-        color: #FFB18B;
-        background: rgba(255, 92, 92, 0.10);
-        border-color: rgba(255, 92, 92, 0.22);
-    }
-    .badge-range {
-        color: #C7D0DB;
-        background: rgba(141, 154, 175, 0.12);
-        border-color: rgba(141, 154, 175, 0.22);
-    }
-    .badge-compression {
-        color: #A9BCFF;
-        background: rgba(76, 125, 255, 0.12);
-        border-color: rgba(76, 125, 255, 0.26);
-    }
-    .badge-neutral {
-        color: #D5DEEB;
-        background: rgba(199, 208, 219, 0.10);
-        border-color: rgba(199, 208, 219, 0.16);
-    }
-    .signal-card-stats {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 10px;
-    }
-    .signal-stat-label {
-        color: #7F8A9E;
-        font-size: 0.70rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 4px;
-    }
-    .signal-stat-value {
-        color: #F3F7FD;
-        font-size: 0.98rem;
-        font-weight: 700;
-    }
-    .signal-table {
-        overflow: hidden;
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        background: rgba(8, 10, 14, 0.65);
-    }
-    .signal-table table {
-        width: 100%;
-        border-collapse: collapse;
-    }
-    .signal-table thead th {
-        padding: 12px 14px;
-        text-align: left;
-        font-size: 0.74rem;
-        font-weight: 700;
-        letter-spacing: 0.10em;
-        text-transform: uppercase;
-        color: #7F8A9E;
-        background: rgba(255, 255, 255, 0.03);
-    }
-    .signal-table tbody tr {
-        border-top: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    .signal-table tbody tr:nth-child(odd) {
-        background: rgba(255, 255, 255, 0.015);
-    }
-    .signal-table tbody tr:hover {
-        background: rgba(76, 125, 255, 0.08);
-    }
-    .signal-table td {
-        padding: 14px;
-        color: #EAF2FF;
-        font-size: 0.95rem;
-        vertical-align: middle;
-    }
-    .rank-cell {
-        color: #6E7B91;
-        font-weight: 700;
-        width: 48px;
-    }
-    .asset-cell {
-        font-weight: 800;
-        font-size: 1.02rem;
-        letter-spacing: 0.02em;
-    }
-    .score-cell {
-        min-width: 190px;
-    }
-    .score-shell {
-        position: relative;
-        height: 11px;
-        border-radius: 999px;
-        overflow: hidden;
-        background: rgba(255, 255, 255, 0.08);
-        margin-bottom: 8px;
-    }
-    .score-fill {
-        height: 100%;
-        border-radius: 999px;
-    }
-    .score-text {
-        font-size: 0.90rem;
-        font-weight: 700;
-        color: #F7FAFF;
-    }
-    .metric-pos { color: #7CFFD1; font-weight: 700; }
-    .metric-neg { color: #FFB18B; font-weight: 700; }
-    .metric-flat { color: #D5DEEB; font-weight: 700; }
-    @media (max-width: 1100px) {
-        .signal-board-grid { grid-template-columns: 1fr; }
-        .signal-card-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .signal-table { overflow-x: auto; }
+    button[kind="primary"]:hover {
+        background-color: #00CC88 !important;
     }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
-st.markdown(
-    "<h1 style='text-align:center; color:#EAF2FF;'>Alpha Momentum Matrix</h1>",
-    unsafe_allow_html=True,
-)
-st.caption(
-    "Cross-asset squeeze and expansion radar with causal normalization, volatility-scaled momentum, "
-    "relative volume confirmation, and a stricter structural regime engine."
-)
+TF_LOOKBACKS = {"1h": 240, "4h": 180, "1d": 126}
 
-TIMEFRAME_CONFIG = {
-    "1h": {
-        "download_interval": "60m",
-        "period": "730d",
-        "resample": None,
-        "z_window": 240,
-        "regime_window": 72,
-        "release_decay_bars": 5,
-        "min_squeeze_bars": 4,
-        "display_bars": 240,
-        "min_history": 320,
-        "weights": {"mom": 0.42, "acc": 0.28, "trend": 0.20, "vol": 0.10},
-    },
-    "4h": {
-        "download_interval": "60m",
-        "period": "730d",
-        "resample": "4h",
-        "z_window": 180,
-        "regime_window": 45,
-        "release_decay_bars": 5,
-        "min_squeeze_bars": 3,
-        "display_bars": 220,
-        "min_history": 260,
-        "weights": {"mom": 0.44, "acc": 0.24, "trend": 0.22, "vol": 0.10},
-    },
-    "1d": {
-        "download_interval": "1d",
-        "period": "10y",
-        "resample": None,
-        "z_window": 126,
-        "regime_window": 30,
-        "release_decay_bars": 4,
-        "min_squeeze_bars": 3,
-        "display_bars": 240,
-        "min_history": 240,
-        "weights": {"mom": 0.47, "acc": 0.18, "trend": 0.25, "vol": 0.10},
-    },
-}
-
-DEFAULT_WATCHLIST = "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, AAPL"
-
-
-def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
+# --- 2. DATA PIPELINE & CACHING (ANTI-BAN) ---
+def _flatten_columns(df):
     if isinstance(df.columns, pd.MultiIndex):
-        df = df.copy()
         df.columns = df.columns.get_level_values(0)
     return df
 
-
-def _normalize_index(index: pd.Index) -> pd.DatetimeIndex:
-    normalized = pd.to_datetime(index)
-    if getattr(normalized, "tz", None) is not None:
-        normalized = normalized.tz_convert(None)
-    return normalized
-
-
-def _ema(series: pd.Series, length: int) -> pd.Series:
-    return series.ewm(span=length, adjust=False, min_periods=length).mean()
-
-
-def _causal_rolling_zscore(series: pd.Series, window: int) -> pd.Series:
-    history = series.shift(1)
-    mean = history.rolling(window=window, min_periods=window).mean()
-    std = history.rolling(window=window, min_periods=window).std(ddof=0)
-    z = (series - mean) / std.replace(0.0, np.nan)
-    return z.replace([np.inf, -np.inf], np.nan)
-
-
-def _atr(df: pd.DataFrame, length: int = 14) -> pd.Series:
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-    prev_close = close.shift(1)
-    true_range = pd.concat(
-        [
-            high - low,
-            (high - prev_close).abs(),
-            (low - prev_close).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
-    return true_range.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
-
-
-def _resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
-    agg = {
-        "Open": "first",
-        "High": "max",
-        "Low": "min",
-        "Close": "last",
-        "Volume": "sum",
-    }
-    out = df.resample(rule, label="right", closed="right").agg(agg)
-    return out.dropna(subset=["Open", "High", "Low", "Close"])
-
-
-def _clean_watchlist(raw_text: str) -> list[str]:
-    seen: set[str] = set()
-    tickers: list[str] = []
-    for item in raw_text.split(","):
-        symbol = item.strip().upper()
-        if not symbol or symbol in seen:
-            continue
-        seen.add(symbol)
-        tickers.append(symbol)
-    return tickers
-
-
-def _squeeze_ranges(index: pd.Index, mask: pd.Series) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
-    ranges: list[tuple[pd.Timestamp, pd.Timestamp]] = []
-    active_start: pd.Timestamp | None = None
-    active_end: pd.Timestamp | None = None
-
-    for ts, active in zip(index, mask.fillna(False).tolist()):
-        if active and active_start is None:
-            active_start = ts
-        if active:
-            active_end = ts
-        elif active_start is not None and active_end is not None:
-            ranges.append((active_start, active_end))
-            active_start = None
-            active_end = None
-
-    if active_start is not None and active_end is not None:
-        ranges.append((active_start, active_end))
-
-    return ranges
-
-
-def _bias_label(score: float) -> str:
-    if score >= 70:
-        return "Strong Long"
-    if score >= 57:
-        return "Long"
-    if score <= 30:
-        return "Strong Short"
-    if score <= 43:
-        return "Short"
-    return "Neutral"
-
-
-def _score_visuals(score: float) -> tuple[str, str]:
-    if score >= 70:
-        return "linear-gradient(90deg, #00D68F, #00FFAA)", "rgba(0, 255, 170, 0.18)"
-    if score >= 57:
-        return "linear-gradient(90deg, #00B8D9, #00E5FF)", "rgba(0, 229, 255, 0.18)"
-    if score <= 30:
-        return "linear-gradient(90deg, #FF6B6B, #FF3B30)", "rgba(255, 92, 92, 0.18)"
-    if score <= 43:
-        return "linear-gradient(90deg, #FFB86B, #FF9F43)", "rgba(255, 159, 67, 0.18)"
-    return "linear-gradient(90deg, #7A869A, #A0AEC0)", "rgba(160, 174, 192, 0.16)"
-
-
-def _badge_class(value: str, column: str) -> str:
-    value_lower = value.lower()
-    if column == "Regime":
-        if value_lower == "bull":
-            return "badge-bull"
-        if value_lower == "bear":
-            return "badge-bear"
-        return "badge-range"
-    if "compression" in value_lower:
-        return "badge-compression"
-    if "bull" in value_lower or "long" in value_lower:
-        return "badge-bull"
-    if "bear" in value_lower or "short" in value_lower:
-        return "badge-bear"
-    return "badge-neutral"
-
-
-def _metric_class(value: float, positive_threshold: float, negative_threshold: float) -> str:
-    if value >= positive_threshold:
-        return "metric-pos"
-    if value <= negative_threshold:
-        return "metric-neg"
-    return "metric-flat"
-
-
-def _regime_symbol(value: str) -> str:
-    return {"Bull": "diamond", "Bear": "x", "Range": "circle"}.get(value, "circle")
-
-
-def _setup_label(
-    regime: str,
-    squeeze_on: bool,
-    squeeze_fired: bool,
-    momentum_z: float,
-    accel_z: float,
-    rvol: float,
-    score: float,
-) -> str:
-    if squeeze_on:
-        return "Compression"
-    if regime == "Bull" and score >= 60 and momentum_z > 0.35 and accel_z > -0.1:
-        return "Bull Expansion"
-    if regime == "Bear" and score <= 40 and momentum_z < -0.35 and accel_z < 0.1:
-        return "Bear Expansion"
-    if squeeze_fired and momentum_z > 0:
-        return "Bull Release"
-    if squeeze_fired and momentum_z < 0:
-        return "Bear Release"
-    if abs(momentum_z) < 0.35 and abs(accel_z) < 0.35 and 0.9 <= rvol <= 1.15:
-        return "Neutral"
-    return "Transition"
-
-
-def _data_health_label(volume_quality: float, bars: int, min_history: int) -> str:
-    if bars < min_history:
-        return "Thin"
-    if volume_quality < 0.35:
-        return "Sparse"
-    if volume_quality < 0.75:
-        return "Mixed"
-    return "Healthy"
-
-
-def _ensure_results_schema(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-
-    normalized = df.copy()
-    defaults: dict[str, object] = {
-        "Asset": "",
-        "Price": np.nan,
-        "Regime": "Range",
-        "Bias": "Neutral",
-        "Setup": "Transition",
-        "Setup Score": 50.0,
-        "Confidence": 0.50,
-        "Squeeze": "OFF",
-        "Squeeze Bars": 0,
-        "Momentum Z": 0.0,
-        "Acceleration Z": 0.0,
-        "Trend Z": 0.0,
-        "RVOL": 1.0,
-        "NATR %": np.nan,
-        "Data Health": "Mixed",
-    }
-
-    for column, default_value in defaults.items():
-        if column not in normalized.columns:
-            normalized[column] = default_value
-
-    numeric_columns = [
-        "Price",
-        "Setup Score",
-        "Confidence",
-        "Squeeze Bars",
-        "Momentum Z",
-        "Acceleration Z",
-        "Trend Z",
-        "RVOL",
-        "NATR %",
-    ]
-    for column in numeric_columns:
-        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
-
-    normalized["Setup Score"] = normalized["Setup Score"].fillna(50.0)
-    normalized["Confidence"] = normalized["Confidence"].fillna(0.50).clip(0, 1)
-    normalized["Squeeze Bars"] = normalized["Squeeze Bars"].fillna(0).astype(int)
-    normalized["Momentum Z"] = normalized["Momentum Z"].fillna(0.0)
-    normalized["Acceleration Z"] = normalized["Acceleration Z"].fillna(0.0)
-    normalized["Trend Z"] = normalized["Trend Z"].fillna(0.0)
-    normalized["RVOL"] = normalized["RVOL"].fillna(1.0)
-    normalized["Data Health"] = normalized["Data Health"].fillna("Mixed").astype(str)
-
-    return normalized
-
+def _resample_ohlcv(df, rule):
+    df.index = pd.to_datetime(df.index).tz_localize(None)
+    agg_dict = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
+    return df.resample(rule).agg(agg_dict).dropna()
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_price_history(ticker: str, timeframe: str) -> tuple[pd.DataFrame, str | None]:
-    config = TIMEFRAME_CONFIG[timeframe]
-    try:
-        df = yf.download(
-            ticker,
-            period=config["period"],
-            interval=config["download_interval"],
-            progress=False,
-            auto_adjust=True,
-            threads=False,
-        )
-    except Exception as exc:
-        return pd.DataFrame(), f"download failed: {exc}"
+def fetch_market_data(symbol, period, interval):
+    df = yf.download(symbol, period=period, interval=interval, progress=False)
+    if not df.empty:
+        return _flatten_columns(df)
+    return pd.DataFrame()
 
-    df = _flatten_columns(df)
-    required = ["Open", "High", "Low", "Close", "Volume"]
-    if df.empty or any(column not in df.columns for column in required):
-        return pd.DataFrame(), "missing required OHLCV columns"
+# --- 3. CORE MATHEMATICS (V5.1 CONTINUOUS ENGINE) ---
+def _rolling_zscore(series, window):
+    return (series - series.rolling(window).mean()) / series.rolling(window).std()
 
-    df = df[required].copy()
-    for column in required:
-        df[column] = pd.to_numeric(df[column], errors="coerce")
-
-    df = df.dropna(subset=["Open", "High", "Low", "Close"])
-    df.index = _normalize_index(df.index)
-    df = df[~df.index.duplicated(keep="last")].sort_index()
-
-    if config["resample"]:
-        df = _resample_ohlcv(df, config["resample"])
-
-    df = df.dropna(subset=["Open", "High", "Low", "Close"])
-    if df.empty:
-        return pd.DataFrame(), "cleaned history is empty"
-
-    return df, None
-
-
-def calculate_signals(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
-    config = TIMEFRAME_CONFIG[timeframe]
-    weights = config["weights"]
-
+def calculate_signals_v5_1(df, timeframe, full_history=False):
     data = df.copy()
-    close = data["Close"]
-    volume = data["Volume"].where(data["Volume"] > 0.0, np.nan)
+    z_win = TF_LOOKBACKS.get(timeframe, 126)
+    
+    ema20 = data['Close'].ewm(span=20, adjust=False).mean()
+    ema200 = data['Close'].ewm(span=200, adjust=False).mean()
+    
+    tr = pd.concat([(data['High'] - data['Low']), 
+                    (data['High'] - data['Close'].shift(1)).abs(), 
+                    (data['Low'] - data['Close'].shift(1)).abs()], axis=1).max(axis=1)
+    atr20 = tr.ewm(alpha=1/20, adjust=False).mean()
+    
+    sqz_on = (data['Close'].rolling(20).std() * 2.0 < 1.5 * atr20)
+    
+    fired_counter = (~sqz_on).groupby(sqz_on.cumsum()).cumsum()
+    sqz_decay = np.where((~sqz_on) & (fired_counter <= 5), (6 - fired_counter) / 5, 0)
+    
+    mom_raw = (data['Close'] - ema20) / atr20.replace(0, np.nan)
+    mom_smooth = mom_raw.ewm(span=5).mean()
+    mom_z = _rolling_zscore(mom_smooth, z_win)
+    
+    acc_raw = mom_z.diff().ewm(span=3, adjust=False).mean()
+    acc_z = _rolling_zscore(acc_raw, z_win)
+    
+    vol_mean = data['Volume'].rolling(20).mean().replace(0, np.nan)
+    rvol = (data['Volume'] / vol_mean).replace([np.inf, -np.inf, 0], np.nan)
+    rvol_z = _rolling_zscore(np.log(rvol), z_win)
 
-    ema_20 = _ema(close, 20)
-    ema_50 = _ema(close, 50)
-    ema_200 = _ema(close, 200)
-    atr_14 = _atr(data, 14)
-    atr_20 = _atr(data, 20)
-    natr = (atr_14 / close.replace(0.0, np.nan)) * 100.0
+    w_mom, w_acc, w_vol = (0.45, 0.40, 0.15) if timeframe != '1d' else (0.55, 0.30, 0.15)
+    
+    raw = (w_mom * mom_z.clip(-3, 3) + w_acc * acc_z.clip(-3, 3) + w_vol * rvol_z.clip(-3, 3) * np.sign(mom_z.fillna(0)))
+    bias = np.where(sqz_decay > 0, np.sign(mom_z.fillna(0)) * 0.25 * sqz_decay, 0)
+    
+    slope_z = _rolling_zscore(ema200.diff(), z_win)
+    regime_bias = 0.3 * np.tanh(slope_z.fillna(0) / 2.0)
+    
+    score = 50.0 + 40.0 * np.tanh((raw + bias + regime_bias) / 2.0)
+    
+    data['Score'] = score.fillna(50.0)
+    data['MomZ'] = mom_z.fillna(0)
+    data['AccZ'] = acc_z.fillna(0)
+    data['RVOL'] = rvol.fillna(1.0)
+    data['Squeeze'] = sqz_on
+    data['EMA20'] = ema20
+    data['EMA200'] = ema200
+    
+    if full_history:
+        return data.dropna()
+    else:
+        return data.iloc[-1:]
 
-    bb_basis = close.rolling(window=20, min_periods=20).mean()
-    bb_std = close.rolling(window=20, min_periods=20).std(ddof=0)
-    bb_upper = bb_basis + 2.0 * bb_std
-    bb_lower = bb_basis - 2.0 * bb_std
+# --- 4. VISUAL ENGINE ---
+def style_matrix(res_df):
+    def score_color(val):
+        alpha = min(abs(val - 50) / 40, 0.6)
+        color = f"rgba(0, 255, 170, {alpha})" if val > 50 else f"rgba(255, 92, 92, {alpha})"
+        return f'background-color: {color}; color: white; font-weight: bold;'
 
-    kc_basis = ema_20
-    kc_upper = kc_basis + 1.5 * atr_20
-    kc_lower = kc_basis - 1.5 * atr_20
+    return res_df.style.map(score_color, subset=['Score']).format({
+        'Score': '{:.1f}', 'Price': '${:.2f}', 'MomZ': '{:+.2f}', 'AccZ': '{:+.2f}', 'RVOL': '{:.2f}x'
+    })
 
-    squeeze_on = (bb_lower > kc_lower) & (bb_upper < kc_upper)
-    squeeze_group = (~squeeze_on).cumsum()
-    squeeze_duration = squeeze_on.groupby(squeeze_group).cumsum().fillna(0).astype(int)
-    prior_squeeze_duration = squeeze_duration.where(squeeze_on).ffill().shift(1).fillna(0).astype(int)
-    squeeze_fired = (~squeeze_on) & squeeze_on.shift(1).fillna(False)
-    post_squeeze_bars = (~squeeze_on).groupby(squeeze_on.cumsum()).cumsum().fillna(0).astype(int)
-    release_decay = pd.Series(
-        np.where(
-            (~squeeze_on)
-            & (prior_squeeze_duration >= config["min_squeeze_bars"])
-            & (post_squeeze_bars <= config["release_decay_bars"]),
-            (config["release_decay_bars"] + 1 - post_squeeze_bars) / config["release_decay_bars"],
-            0.0,
-        ),
-        index=data.index,
-    )
-
-    momentum_raw = (close - ema_20) / atr_14.replace(0.0, np.nan)
-    momentum = _ema(momentum_raw, 5)
-    acceleration = _ema(momentum.diff(), 3)
-    trend_raw = (ema_20 - ema_50) / atr_20.replace(0.0, np.nan)
-    rvol = volume / volume.rolling(window=20, min_periods=20).mean()
-
-    momentum_z = _causal_rolling_zscore(momentum, config["z_window"])
-    acceleration_z = _causal_rolling_zscore(acceleration, config["z_window"])
-    trend_z = _causal_rolling_zscore(trend_raw, config["z_window"])
-    rvol_z = _causal_rolling_zscore(np.log(rvol.clip(lower=1e-6)), config["z_window"])
-
-    regime_slope = ema_200.pct_change(config["regime_window"])
-    regime_distance = (ema_50 - ema_200) / atr_20.replace(0.0, np.nan)
-    regime = np.select(
-        [
-            (close > ema_200) & (ema_50 > ema_200) & (regime_slope > 0),
-            (close < ema_200) & (ema_50 < ema_200) & (regime_slope < 0),
-        ],
-        ["Bull", "Bear"],
-        default="Range",
-    )
-
-    directional_raw = (
-        weights["mom"] * momentum_z.clip(-3, 3)
-        + weights["acc"] * acceleration_z.clip(-3, 3)
-        + weights["trend"] * trend_z.clip(-3, 3)
-        + weights["vol"] * rvol_z.clip(-3, 3) * np.sign(momentum_z.fillna(0.0))
-    )
-    regime_bias = np.where(
-        regime == "Bull",
-        0.18 + regime_distance.clip(lower=0, upper=2).fillna(0.0) * 0.08,
-        np.where(
-            regime == "Bear",
-            -0.18 + regime_distance.clip(lower=-2, upper=0).fillna(0.0) * 0.08,
-            0.0,
-        ),
-    )
-    release_bias = np.sign(momentum_z.fillna(0.0)) * 0.25 * release_decay
-    compression_drag = np.where(
-        squeeze_on,
-        -0.10 * np.sign(momentum_z.fillna(0.0)) * momentum_z.abs().clip(0, 1.5),
-        0.0,
-    )
-    setup_score = pd.Series(
-        50.0 + 42.0 * np.tanh((directional_raw + regime_bias + release_bias + compression_drag) / 2.2),
-        index=data.index,
-    ).clip(0, 100)
-
-    volume_quality = volume.notna().rolling(window=40, min_periods=10).mean()
-    confidence = (
-        0.55
-        + 0.20 * np.minimum(momentum_z.abs().fillna(0.0), 2.0) / 2.0
-        + 0.15 * np.minimum(trend_z.abs().fillna(0.0), 2.0) / 2.0
-        + 0.10 * np.minimum(np.abs(setup_score - 50.0), 35.0) / 35.0
-    ).clip(0, 1)
-
-    data["EMA20"] = ema_20
-    data["EMA50"] = ema_50
-    data["EMA200"] = ema_200
-    data["ATR14"] = atr_14
-    data["NATR"] = natr
-    data["BBUpper"] = bb_upper
-    data["BBLower"] = bb_lower
-    data["KCUpper"] = kc_upper
-    data["KCLower"] = kc_lower
-    data["SqueezeOn"] = squeeze_on
-    data["SqueezeDuration"] = squeeze_duration
-    data["SqueezeFired"] = squeeze_fired
-    data["ReleaseDecay"] = release_decay
-    data["Momentum"] = momentum
-    data["Acceleration"] = acceleration
-    data["TrendRaw"] = trend_raw
-    data["MomentumZ"] = momentum_z
-    data["AccelerationZ"] = acceleration_z
-    data["TrendZ"] = trend_z
-    data["RVOL"] = rvol
-    data["RVOLZ"] = rvol_z
-    data["SetupScore"] = setup_score
-    data["Regime"] = regime
-    data["RegimeSlope"] = regime_slope
-    data["RegimeDistance"] = regime_distance
-    data["Confidence"] = confidence
-    data["VolumeQuality"] = volume_quality
-    data["Bias"] = data["SetupScore"].apply(_bias_label)
-
-    data["Setup"] = [
-        _setup_label(regime_value, squeeze_value, fired_value, momentum_value, accel_value, rvol_value, score_value)
-        for regime_value, squeeze_value, fired_value, momentum_value, accel_value, rvol_value, score_value in zip(
-            data["Regime"],
-            data["SqueezeOn"],
-            data["SqueezeFired"],
-            data["MomentumZ"].fillna(0.0),
-            data["AccelerationZ"].fillna(0.0),
-            data["RVOL"].fillna(0.0),
-            data["SetupScore"].fillna(50.0),
-        )
-    ]
-
-    return data.dropna(
-        subset=[
-            "EMA20",
-            "EMA200",
-            "ATR14",
-            "MomentumZ",
-            "AccelerationZ",
-            "TrendZ",
-            "RVOL",
-            "SetupScore",
-            "Confidence",
-        ]
-    )
-
-
-def build_overview_chart(symbol: str, df: pd.DataFrame) -> go.Figure:
-    fig = make_subplots(
-        rows=4,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.04,
-        row_heights=[0.43, 0.17, 0.22, 0.18],
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["Close"],
-            mode="lines",
-            line=dict(color="#EAF2FF", width=2),
-            name="Close",
-            hovertemplate="%{x}<br>Close=%{y:,.2f}<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA20"],
-            mode="lines",
-            line=dict(color="#00E5FF", width=1.5),
-            name="EMA20",
-            hovertemplate="%{x}<br>EMA20=%{y:,.2f}<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA50"],
-            mode="lines",
-            line=dict(color="#00FFAA", width=1.25, dash="dot"),
-            name="EMA50",
-            hovertemplate="%{x}<br>EMA50=%{y:,.2f}<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA200"],
-            mode="lines",
-            line=dict(color="#FF9F43", width=1.4),
-            name="EMA200",
-            hovertemplate="%{x}<br>EMA200=%{y:,.2f}<extra></extra>",
-        ),
-        row=1,
-        col=1,
-    )
-
-    release_points = df[df["SqueezeFired"]]
-    if not release_points.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=release_points.index,
-                y=release_points["Close"],
-                mode="markers",
-                marker=dict(
-                    size=9,
-                    color=np.where(release_points["MomentumZ"] >= 0, "#00FFAA", "#FF5C5C"),
-                    line=dict(color="#0F0F0F", width=1),
-                    symbol="diamond",
-                ),
-                name="Release",
-                hovertemplate="%{x}<br>Release price=%{y:,.2f}<extra></extra>",
-            ),
-            row=1,
-            col=1,
-        )
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["SetupScore"],
-            mode="lines",
-            line=dict(color="#D5DEEB", width=2),
-            fill="tozeroy",
-            fillcolor="rgba(213, 222, 235, 0.08)",
-            name="Setup Score",
-            hovertemplate="%{x}<br>Score=%{y:.1f}<extra></extra>",
-        ),
-        row=2,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["MomentumZ"],
-            mode="lines",
-            line=dict(color="#00FFAA", width=2),
-            name="Momentum Z",
-            hovertemplate="%{x}<br>Momentum Z=%{y:.2f}<extra></extra>",
-        ),
-        row=3,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["AccelerationZ"],
-            mode="lines",
-            line=dict(color="#4C7DFF", width=1.7),
-            name="Acceleration Z",
-            hovertemplate="%{x}<br>Acceleration Z=%{y:.2f}<extra></extra>",
-        ),
-        row=3,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["TrendZ"],
-            mode="lines",
-            line=dict(color="#FF9F43", width=1.3, dash="dot"),
-            name="Trend Z",
-            hovertemplate="%{x}<br>Trend Z=%{y:.2f}<extra></extra>",
-        ),
-        row=3,
-        col=1,
-    )
-    fig.add_trace(
-        go.Bar(
-            x=df.index,
-            y=df["RVOL"],
-            marker=dict(
-                color=np.where(df["RVOL"] >= 1.0, "rgba(0, 229, 255, 0.65)", "rgba(120, 130, 140, 0.45)")
-            ),
-            name="RVOL",
-            hovertemplate="%{x}<br>RVOL=%{y:.2f}<extra></extra>",
-        ),
-        row=4,
-        col=1,
-    )
-
-    for start, end in _squeeze_ranges(df.index, df["SqueezeOn"]):
-        for row in (1, 2, 3, 4):
-            fig.add_vrect(
-                x0=start,
-                x1=end,
-                fillcolor="rgba(76, 125, 255, 0.08)",
-                line_width=0,
-                row=row,
-                col=1,
-            )
-
-    fig.add_hline(y=50, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
-    fig.add_hline(y=65, line=dict(color="rgba(0,255,170,0.18)", width=1, dash="dash"), row=2, col=1)
-    fig.add_hline(y=35, line=dict(color="rgba(255,92,92,0.18)", width=1, dash="dash"), row=2, col=1)
-    fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.16)", width=1), row=3, col=1)
-    fig.add_hline(y=2, line=dict(color="rgba(0,255,170,0.12)", width=1, dash="dash"), row=3, col=1)
-    fig.add_hline(y=-2, line=dict(color="rgba(255,92,92,0.12)", width=1, dash="dash"), row=3, col=1)
-    fig.add_hline(y=1, line=dict(color="rgba(255,255,255,0.10)", width=1, dash="dash"), row=4, col=1)
-
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0F0F0F",
-        plot_bgcolor="#0F0F0F",
-        height=940,
-        margin=dict(l=50, r=40, t=40, b=40),
-        title=dict(text=f"{symbol} deep inspection", font=dict(size=18, color="#EAF2FF")),
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0.0),
-    )
-    fig.update_xaxes(showgrid=False, tickfont=dict(size=11, color="#C7D0DB"))
-    fig.update_yaxes(showgrid=False, tickfont=dict(size=11, color="#C7D0DB"))
-    fig.update_yaxes(title="Price", row=1, col=1)
-    fig.update_yaxes(title="Score", row=2, col=1, range=[0, 100])
-    fig.update_yaxes(title="Z-Score", row=3, col=1, range=[-3.5, 3.5])
-    fig.update_yaxes(title="RVOL", row=4, col=1)
-    return fig
-
-
-def build_scatter_chart(results: pd.DataFrame) -> go.Figure:
+def build_rotation_radar(res_df):
     fig = go.Figure()
-    fig.add_shape(type="rect", x0=0, y0=0, x1=3.5, y1=3.5, fillcolor="rgba(0, 255, 170, 0.04)", line_width=0)
-    fig.add_shape(type="rect", x0=-3.5, y0=-3.5, x1=0, y1=0, fillcolor="rgba(255, 92, 92, 0.04)", line_width=0)
+    fig.add_shape(type="rect", x0=0, y0=0, x1=3.5, y1=3.5, fillcolor="rgba(0, 255, 170, 0.05)", line_width=0)
+    fig.add_shape(type="rect", x0=-3.5, y0=-3.5, x1=0, y1=0, fillcolor="rgba(255, 92, 92, 0.05)", line_width=0)
 
-    fig.add_trace(
-        go.Scatter(
-            x=results["Momentum Z"],
-            y=results["Acceleration Z"],
-            mode="markers+text",
-            text=results["Asset"],
-            textposition="top center",
-            marker=dict(
-                size=(results["RVOL"].clip(lower=0.6, upper=3.0) * 12).tolist(),
-                color=results["Setup Score"],
-                colorscale=[
-                    [0.0, "#FF5C5C"],
-                    [0.35, "#FF9F43"],
-                    [0.50, "#7A869A"],
-                    [0.65, "#00B8D9"],
-                    [1.0, "#00FFAA"],
-                ],
-                cmin=0,
-                cmax=100,
-                symbol=[_regime_symbol(value) for value in results["Regime"]],
-                line=dict(color="#0F0F0F", width=1),
-                colorbar=dict(title="Score", tickvals=[20, 50, 80]),
-            ),
-            customdata=np.stack(
-                [
-                    results["Setup"],
-                    results["Regime"],
-                    results["Setup Score"],
-                    results["RVOL"],
-                    results["Trend Z"],
-                    results["Confidence"],
-                    results["Squeeze Bars"],
-                    results["Data Health"],
-                ],
-                axis=1,
-            ),
-            hovertemplate=(
-                "%{text}<br>"
-                "Momentum Z=%{x:.2f}<br>"
-                "Acceleration Z=%{y:.2f}<br>"
-                "Setup=%{customdata[0]}<br>"
-                "Regime=%{customdata[1]}<br>"
-                "Score=%{customdata[2]:.1f}<br>"
-                "RVOL=%{customdata[3]:.2f}<br>"
-                "Trend Z=%{customdata[4]:.2f}<br>"
-                "Confidence=%{customdata[5]:.2f}<br>"
-                "Squeeze Bars=%{customdata[6]}<br>"
-                "Data=%{customdata[7]}<extra></extra>"
-            ),
-            showlegend=False,
-        )
-    )
-    fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.18)", width=1))
-    fig.add_vline(x=0, line=dict(color="rgba(255,255,255,0.18)", width=1))
+    fig.add_trace(go.Scatter(
+        x=res_df['MomZ'], y=res_df['AccZ'],
+        mode='markers+text', text=res_df['Asset'], textposition="top center",
+        marker=dict(size=res_df['RVOL'].clip(1, 3) * 12, color=res_df['Score'],
+                    colorscale=[[0, '#FF5C5C'], [0.5, '#444'], [1, '#00FFAA']],
+                    line=dict(width=1, color='white'), showscale=True),
+        hovertemplate="<b>%{text}</b><br>MomZ: %{x:.2f}<br>AccZ: %{y:.2f}<extra></extra>"
+    ))
     fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0F0F0F",
-        plot_bgcolor="#0F0F0F",
-        height=560,
-        margin=dict(l=40, r=30, t=30, b=40),
-        title=dict(text="Rotation Radar", font=dict(size=18, color="#EAF2FF")),
+        title="Alpha Rotation Radar (Continuous Matrix)",
+        xaxis=dict(title="Momentum Z-Score", range=[-3.5, 3.5], gridcolor="#222", zerolinecolor="white"),
+        yaxis=dict(title="Smoothed Accel Z-Score", range=[-3.5, 3.5], gridcolor="#222", zerolinecolor="white"),
+        paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F", height=500, margin=dict(l=20, r=20, t=50, b=20)
     )
-    fig.update_xaxes(title="Momentum Z", showgrid=False, range=[-3.5, 3.5])
-    fig.update_yaxes(title="Acceleration Z", showgrid=False, range=[-3.5, 3.5])
     return fig
 
+def build_deep_inspection_chart(symbol, df):
+    df_plot = df.tail(200)
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.5, 0.25, 0.25])
 
-def render_signal_board(df: pd.DataFrame) -> None:
-    records = df.to_dict(orient="records")
-    top_cards_html: list[str] = []
-    for rank, row_data in enumerate(records[: min(3, len(records))], start=1):
-        fill, glow = _score_visuals(float(row_data["Setup Score"]))
-        top_cards_html.append(
-            (
-                f'<div class="signal-card" style="box-shadow: inset 0 0 0 1px {glow};">'
-                f'<div class="signal-card-top"><div><div class="signal-rank">Top {rank}</div>'
-                f'<div class="signal-asset">{html.escape(str(row_data["Asset"]))}</div></div>'
-                f'<div class="signal-score-pill" style="background:{fill};">{row_data["Setup Score"]:.1f}</div></div>'
-                f'<div class="signal-card-setup">{html.escape(str(row_data["Setup"]))}</div>'
-                f'<div class="signal-card-meta">'
-                f'<span class="signal-badge {_badge_class(str(row_data["Regime"]), "Regime")}">{html.escape(str(row_data["Regime"]))}</span>'
-                f'<span class="signal-badge {_badge_class(str(row_data["Bias"]), "Bias")}">{html.escape(str(row_data["Bias"]))}</span>'
-                f'<span class="signal-badge {_badge_class(str(row_data["Squeeze"]), "Squeeze")}">Squeeze {html.escape(str(row_data["Squeeze"]))}</span>'
-                f'<span class="signal-badge {_badge_class(str(row_data["Data Health"]), "Data")}">{html.escape(str(row_data["Data Health"]))}</span>'
-                f"</div>"
-                f'<div class="signal-card-stats">'
-                f'<div><div class="signal-stat-label">Momentum Z</div><div class="signal-stat-value">{row_data["Momentum Z"]:+.2f}</div></div>'
-                f'<div><div class="signal-stat-label">Acceleration</div><div class="signal-stat-value">{row_data["Acceleration Z"]:+.2f}</div></div>'
-                f'<div><div class="signal-stat-label">Trend Z</div><div class="signal-stat-value">{row_data["Trend Z"]:+.2f}</div></div>'
-                f'<div><div class="signal-stat-label">RVOL</div><div class="signal-stat-value">{row_data["RVOL"]:.2f}x</div></div>'
-                f"</div></div>"
-            )
-        )
+    # Plot 1: Institutional Candlesticks & EMAs
+    fig.add_trace(go.Candlestick(
+        x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'],
+        name="Price", increasing_line_color="#00FFAA", decreasing_line_color="#FF5C5C",
+        increasing_fillcolor="rgba(0, 255, 170, 0.2)", decreasing_fillcolor="rgba(255, 92, 92, 0.2)"
+    ), row=1, col=1)
+    
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['EMA20'], name="EMA20", line=dict(color="#00FFAA", width=1.5)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['EMA200'], name="EMA200", line=dict(color="#0055FF", width=1.5)), row=1, col=1)
 
-    rows_html: list[str] = []
-    for rank, row_data in enumerate(records, start=1):
-        score = float(row_data["Setup Score"])
-        fill, _ = _score_visuals(score)
-        momentum_class = _metric_class(float(row_data["Momentum Z"]), 0.35, -0.35)
-        accel_class = _metric_class(float(row_data["Acceleration Z"]), 0.10, -0.10)
-        trend_class = _metric_class(float(row_data["Trend Z"]), 0.20, -0.20)
-        rvol_class = _metric_class(float(row_data["RVOL"]), 1.05, 0.95)
-        rows_html.append(
-            (
-                "<tr>"
-                f'<td class="rank-cell">{rank:02d}</td>'
-                f'<td class="asset-cell">{html.escape(str(row_data["Asset"]))}</td>'
-                f'<td><span class="signal-badge {_badge_class(str(row_data["Setup"]), "Setup")}">{html.escape(str(row_data["Setup"]))}</span></td>'
-                f'<td><span class="signal-badge {_badge_class(str(row_data["Bias"]), "Bias")}">{html.escape(str(row_data["Bias"]))}</span></td>'
-                f'<td><span class="signal-badge {_badge_class(str(row_data["Regime"]), "Regime")}">{html.escape(str(row_data["Regime"]))}</span></td>'
-                f'<td class="score-cell"><div class="score-shell"><div class="score-fill" style="width:{score:.1f}%; background:{fill};"></div></div><div class="score-text">{score:.1f}/100</div></td>'
-                f'<td class="{momentum_class}">{row_data["Momentum Z"]:+.2f}</td>'
-                f'<td class="{accel_class}">{row_data["Acceleration Z"]:+.2f}</td>'
-                f'<td class="{trend_class}">{row_data["Trend Z"]:+.2f}</td>'
-                f'<td class="{rvol_class}">{row_data["RVOL"]:.2f}x</td>'
-                f"<td>{int(row_data['Squeeze Bars'])}</td>"
-                f'<td>{html.escape(str(row_data["Data Health"]))}</td>'
-                "</tr>"
-            )
-        )
+    # Squeeze Background Zones
+    sqz_starts = df_plot[df_plot['Squeeze'] & ~df_plot['Squeeze'].shift(1).fillna(False)].index
+    sqz_ends = df_plot[~df_plot['Squeeze'] & df_plot['Squeeze'].shift(1).fillna(False)].index
+    
+    for start in sqz_starts:
+        end = sqz_ends[sqz_ends > start]
+        end_time = end[0] if len(end) > 0 else df_plot.index[-1]
+        for r in [1, 2, 3]:
+            fig.add_vrect(x0=start, x1=end_time, fillcolor="rgba(0, 85, 255, 0.1)", line_width=0, row=r, col=1)
 
-    board_html = (
-        '<div class="signal-board">'
-        '<div class="signal-board-header"><div>'
-        '<div class="signal-board-title">Signal Board</div>'
-        '<div class="signal-board-subtitle">Causally normalized setups ranked by directional imbalance and structural trend quality</div>'
-        "</div></div>"
-        f'<div class="signal-board-grid">{"".join(top_cards_html)}</div>'
-        '<div class="signal-table"><table><thead><tr>'
-        "<th>#</th><th>Asset</th><th>Setup</th><th>Bias</th><th>Regime</th><th>Score</th>"
-        "<th>Momentum</th><th>Accel</th><th>Trend</th><th>RVOL</th><th>SQZ</th><th>Data</th>"
-        f'</tr></thead><tbody>{"".join(rows_html)}</tbody></table></div></div>'
+    # Plot 2: Momentum & Acceleration
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['MomZ'], name="MomZ", line=dict(color="#00FFAA", width=2)), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['AccZ'], name="AccZ", line=dict(color="#0055FF", width=1.5, dash='dot')), row=2, col=1)
+    fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.2)", width=1), row=2, col=1)
+
+    # Plot 3: RVOL
+    close_delta = df_plot['Close'].diff()
+    colors = np.where((df_plot['RVOL'] > 1.2) & (close_delta > 0), "#00FFAA", 
+                      np.where((df_plot['RVOL'] > 1.2) & (close_delta < 0), "#FF5C5C", "#444"))
+    
+    fig.add_trace(go.Bar(x=df_plot.index, y=df_plot['RVOL'], name="RVOL", marker_color=colors), row=3, col=1)
+    fig.add_hline(y=1, line=dict(color="rgba(255,255,255,0.3)", width=1), row=3, col=1)
+
+    fig.update_layout(
+        title=f"🛡️ Deep Inspection: {symbol}", paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F",
+        height=700, showlegend=False, margin=dict(l=20, r=20, t=60, b=20),
+        xaxis_rangeslider_visible=False
     )
-    st.markdown(board_html, unsafe_allow_html=True)
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(showgrid=False, zeroline=False)
+    return fig
 
+# --- 5. MAIN DASHBOARD (REFINED UI) ---
+st.title("🛡️ Alpha Momentum Matrix")
+st.caption("Quantitative Engine V5.1 Active | Hedged against Data Leakage & Overfitting")
 
+# --- COMMAND CENTER ---
 with st.sidebar:
-    with st.form("alpha_momentum_controls"):
-        st.header("Radar Controls")
-        watchlist_text = st.text_area("Watchlist", DEFAULT_WATCHLIST, height=120)
-        timeframe = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=2)
-        top_n = st.slider("Rows displayed", min_value=4, max_value=20, value=10, step=1)
-        submitted = st.form_submit_button("Analyze Market")
+    st.markdown("<h2 style='text-align: center; color: #00FFAA; letter-spacing: 2px;'>⚙️ COMMAND CENTER</h2>", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color: #2A2A2A;'>", unsafe_allow_html=True)
+    
+    watchlist_raw = st.text_area("📡 ACTIVE WATCHLIST (CSV)", "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, TSLA, NVDA, AMZN", height=90)
+    tf = st.selectbox("⏱️ TIMEFRAME RESOLUTION", ["1h", "4h", "1d"], index=2)
+    
+    st.markdown("<hr style='border-color: #2A2A2A;'>", unsafe_allow_html=True)
+    btn = st.button("EXECUTE QUANT SCAN", type="primary", use_container_width=True)
 
-run_analysis = submitted or "alpha_momentum_results" not in st.session_state
+if 'results_df' not in st.session_state: st.session_state['results_df'] = pd.DataFrame()
 
-if run_analysis:
-    tickers = _clean_watchlist(watchlist_text)
-    results_rows: list[dict[str, object]] = []
-    histories: dict[str, pd.DataFrame] = {}
-    failures: list[str] = []
-    config = TIMEFRAME_CONFIG[timeframe]
-
-    if not tickers:
-        st.warning("Add at least one ticker to the watchlist.")
-        st.stop()
-
-    with st.spinner("Processing squeeze, momentum, trend, and volume structure..."):
-        for symbol in tickers:
-            raw, fetch_error = fetch_price_history(symbol, timeframe)
-            if fetch_error:
-                failures.append(f"{symbol}: {fetch_error}")
-                continue
-            if raw.empty or len(raw) < config["min_history"]:
-                failures.append(f"{symbol}: not enough clean history after normalization")
-                continue
-
+if btn:
+    results = []
+    watchlist = [s.strip().upper() for s in watchlist_raw.split(",") if s.strip()]
+    
+    with st.spinner("Processing High-Frequency Matrix..."):
+        for symbol in watchlist:
             try:
-                enriched = calculate_signals(raw, timeframe)
-            except Exception as exc:
-                failures.append(f"{symbol}: signal engine failed ({exc})")
+                period = "720d" if tf != '1d' else "10y"
+                interval = "60m" if tf != "1d" else "1d"
+                
+                hist = fetch_market_data(symbol, period, interval)
+                
+                if tf == "4h" and not hist.empty:
+                    hist = _resample_ohlcv(hist, '4h')
+                
+                if len(hist) > TF_LOOKBACKS.get(tf, 126) + 20:
+                    last_row = calculate_signals_v5_1(hist, tf, full_history=False)
+                    results.append({
+                        "Asset": symbol, "Price": last_row['Close'].values[0],
+                        "Score": last_row['Score'].values[0], "MomZ": last_row['MomZ'].values[0],
+                        "AccZ": last_row['AccZ'].values[0], "RVOL": last_row['RVOL'].values[0],
+                        "Squeeze": "🔴 ON" if last_row['Squeeze'].values[0] else "🟢 OFF"
+                    })
+            except Exception as e:
                 continue
 
-            if enriched.empty:
-                failures.append(f"{symbol}: indicators could not be computed")
-                continue
+    if results:
+        st.session_state['results_df'] = pd.DataFrame(results).sort_values("Score", ascending=False)
+    else:
+        st.warning("Insufficient clean data retrieved.")
 
-            last = enriched.iloc[-1]
-            volume_quality = float(last["VolumeQuality"]) if pd.notna(last["VolumeQuality"]) else 0.0
-            data_health = _data_health_label(volume_quality, len(raw), config["min_history"])
-            histories[symbol] = enriched.tail(config["display_bars"])
-            results_rows.append(
-                {
-                    "Asset": symbol,
-                    "Price": float(last["Close"]),
-                    "Regime": str(last["Regime"]),
-                    "Bias": str(last["Bias"]),
-                    "Setup": str(last["Setup"]),
-                    "Setup Score": float(last["SetupScore"]),
-                    "Confidence": float(last["Confidence"]),
-                    "Squeeze": "ON" if bool(last["SqueezeOn"]) else "OFF",
-                    "Squeeze Bars": int(last["SqueezeDuration"]),
-                    "Momentum Z": float(last["MomentumZ"]),
-                    "Acceleration Z": float(last["AccelerationZ"]),
-                    "Trend Z": float(last["TrendZ"]),
-                    "RVOL": float(last["RVOL"]),
-                    "NATR %": float(last["NATR"]),
-                    "Data Health": data_health,
-                }
-            )
+if not st.session_state['results_df'].empty:
+    res_df = st.session_state['results_df']
+    
+    # --- HIGH-IMPACT MARKET SENTIMENT ---
+    top_asset = res_df.iloc[0]
+    sentiment_is_bull = res_df['Score'].mean() > 50
+    sentiment_text = "BULLISH 🟢" if sentiment_is_bull else "BEARISH 🔴"
+    sentiment_color = "#00FFAA" if sentiment_is_bull else "#FF5C5C"
+    sqz_count = len(res_df[res_df['Squeeze'] == "🔴 ON"])
 
-    results_df = pd.DataFrame(results_rows)
-    if not results_df.empty:
-        results_df["Directional Edge"] = (results_df["Setup Score"] - 50.0).abs()
-        results_df["Ranking Score"] = results_df["Directional Edge"] * (0.75 + 0.25 * results_df["Confidence"])
-        results_df = results_df.sort_values(["Ranking Score", "Setup Score"], ascending=[False, False]).reset_index(drop=True)
-
-    st.session_state["alpha_momentum_results"] = results_df
-    st.session_state["alpha_momentum_histories"] = histories
-    st.session_state["alpha_momentum_failures"] = failures
-    st.session_state["alpha_momentum_timeframe"] = timeframe
-
-results_df = st.session_state.get("alpha_momentum_results", pd.DataFrame())
-histories = st.session_state.get("alpha_momentum_histories", {})
-failures = st.session_state.get("alpha_momentum_failures", [])
-active_timeframe = st.session_state.get("alpha_momentum_timeframe", timeframe)
-
-results_df = _ensure_results_schema(results_df)
-st.session_state["alpha_momentum_results"] = results_df
-
-if results_df.empty:
-    st.warning("No assets returned enough clean data to compute the matrix.")
-    if failures:
-        with st.expander("Diagnostics", expanded=False):
-            for failure in failures:
-                st.write(f"- {failure}")
-    st.stop()
-
-long_count = int((results_df["Setup Score"] >= 57).sum())
-short_count = int((results_df["Setup Score"] <= 43).sum())
-compression_count = int((results_df["Setup"] == "Compression").sum())
-leader = results_df.iloc[0]
-breadth = ((results_df["Setup Score"] > 57).sum() - (results_df["Setup Score"] < 43).sum()) / max(len(results_df), 1)
-breadth_label = "Bullish" if breadth > 0.15 else "Bearish" if breadth < -0.15 else "Balanced"
-
-c1, c2, c3, c4 = st.columns([1, 1, 1, 1.4])
-c1.metric("Assets Scanned", f"{len(results_df)}")
-c2.metric("Long Bias", f"{long_count}")
-c3.metric("Short Bias", f"{short_count}")
-c4.metric("Top Priority", f"{leader['Asset']} ({leader['Setup']})")
-
-d1, d2, d3, d4 = st.columns([1, 1, 1.2, 1])
-d1.metric("Compressions", f"{compression_count}")
-d2.metric("Timeframe", active_timeframe)
-d3.metric("Breadth", breadth_label, f"{breadth:+.0%}")
-d4.metric("Median Confidence", f"{results_df['Confidence'].median():.2f}")
-
-display_df = (
-    results_df.drop(columns=["Directional Edge", "Ranking Score"], errors="ignore")
-    .head(top_n)
-    .copy()
-)
-render_signal_board(display_df)
-
-csv_bytes = display_df.to_csv(index=False).encode("utf-8")
-st.download_button(
-    label="Download current radar as CSV",
-    data=csv_bytes,
-    file_name=f"alpha_momentum_matrix_{active_timeframe}.csv",
-    mime="text/csv",
-)
-
-st.plotly_chart(build_scatter_chart(display_df), use_container_width=True, config={"displayModeBar": False})
-
-selected_symbol = st.selectbox("Inspect asset", display_df["Asset"].tolist(), index=0)
-selected_history = histories.get(selected_symbol)
-if selected_history is not None and not selected_history.empty:
-    st.plotly_chart(build_overview_chart(selected_symbol, selected_history), use_container_width=True, config={"displayModeBar": False})
-
-if failures:
-    with st.expander("Diagnostics", expanded=False):
-        for failure in failures:
-            st.write(f"- {failure}")
-
-with st.expander("Methodology", expanded=False):
-    st.markdown(
-        """
-- `4h` is built by explicit `1h -> 4h` OHLCV resampling, so the timeframe is temporally honest instead of a relabeled `1h`.
-- `Momentum Z`, `Acceleration Z`, `Trend Z`, and `RVOL Z` use a causal rolling baseline that only looks at prior bars.
-- `Squeeze` uses Bollinger Bands inside Keltner Channels, and the post-release boost only survives for a short decay window after a real compression.
-- `Regime` now requires price above or below `EMA200`, confirmation from `EMA50`, and a slower `EMA200` slope so it does not flip on one noisy bar.
-- `Setup Score` is bounded from `0` to `100` with `tanh`, which keeps tails informative without letting a single component dominate.
-- `Auto-adjusted` OHLC reduces split and dividend contamination for equities when mixing stocks, futures, and crypto in one watchlist.
-- `Confidence` is a secondary quality readout, not a trading signal. It rewards cleaner trend alignment and stronger directional separation.
-        """.strip()
-    )
-
-st.caption(
-    "Data source: Yahoo Finance public market data. Cross-asset dashboards remain heuristic by nature, "
-    "so the score is best used for ranking within a watchlist rather than as a universal forecast probability."
-)
+    st.markdown(f"""
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 25px;">
+        <div style="flex: 1; background-color: #161616; padding: 20px; border-radius: 8px; border: 1px solid #2A2A2A; text-align: center; min-width: 200px;">
+            <p style="color: #888; font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Top Alpha Pick</p>
+            <h2 style="color: #EAF2FF; margin: 5px 0 0 0; font-size: 28px;">{top_asset['Asset']} <span style="color: #00FFAA; font-size: 18px;">({top_asset['Score']:.1f})</span></h2>
+        </div>
+        <div style="flex: 1; background-color: #111; padding: 20px; border-radius: 8px; border: 1px solid {sentiment_color}; text-align: center; border-bottom: 4px solid {sentiment_color}; min-width: 200px;">
+            <p style="color: #888; font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Market Sentiment</p>
+            <h2 style="color: {sentiment_color}; margin: 5px 0 0 0; font-size: 28px; letter-spacing: 2px;">{sentiment_text}</h2>
+        </div>
+        <div style="flex: 1; background-color: #161616; padding: 20px; border-radius: 8px; border: 1px solid #2A2A2A; text-align: center; min-width: 200px;">
+            <p style="color: #888; font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Squeeze Alerts</p>
+            <h2 style="color: #0055FF; margin: 5px 0 0 0; font-size: 28px;">{sqz_count} <span style="font-size: 14px; color: #888;">ASSETS</span></h2>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("Institutional Confluence Matrix")
+    st.dataframe(style_matrix(res_df), use_container_width=True, height=300)
+    
+    st.divider()
+    
+    # --- TACTICAL RADAR LEGEND ---
+    st.markdown("""
+    <div style="padding: 12px 20px; background-color: #161616; border-left: 4px solid #00FFAA; border-radius: 4px; margin-bottom: -15px;">
+        <span style="color: #EAF2FF; font-weight: bold; font-size: 16px;">🎯 EDGE RADAR:</span>
+        <span style="color: #A0AEC0; font-size: 14px;"> <b>Top Right:</b> Institutional Expansion (Long) &nbsp;|&nbsp; <b>Bottom Left:</b> Capitulation (Short)</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.plotly_chart(build_rotation_radar(res_df), use_container_width=True, config={'displayModeBar': False})
+    
+    st.divider()
+    
+    st.subheader("Asset Deep Inspection")
+    target = st.selectbox("Select precise asset to inspect:", res_df['Asset'].tolist())
+    
+    if target:
+        period = "720d" if tf != '1d' else "5y"
+        interval = "60m" if tf != "1d" else "1d"
+        target_hist = fetch_market_data(target, period, interval)
+        
+        if tf == "4h" and not target_hist.empty:
+            target_hist = _resample_ohlcv(target_hist, '4h')
+            
+        if len(target_hist) > 200:
+            full_sigs = calculate_signals_v5_1(target_hist, tf, full_history=True)
+            
+            # --- INSTITUTIONAL X-RAY LEGEND ---
+            st.markdown("""
+            <div style="padding: 12px 20px; background-color: #161616; border-left: 4px solid #0055FF; border-radius: 4px; margin-bottom: -15px;">
+                <span style="color: #EAF2FF; font-weight: bold; font-size: 16px;">🔬 INSTITUTIONAL X-RAY:</span>
+                <span style="color: #A0AEC0; font-size: 14px;"> <b>Blue Zones:</b> Active Squeeze &nbsp;|&nbsp; <b>Volume Bars (Green/Red):</b> Institutional Injection (>1.2x)</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.plotly_chart(build_deep_inspection_chart(target, full_sigs), use_container_width=True, config={'displayModeBar': False})

@@ -6,21 +6,25 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- 1. PAGE SETUP & INSTITUTIONAL THEME ---
-# Removido o try/except preguiçoso. O código tem de rodar perfeito ou quebrar alto.
 st.set_page_config(page_title="Alpha Momentum Matrix V5.1", layout="wide")
 
 st.markdown("""
 <style>
     .main { background-color: #0F0F0F; }
-    div[data-testid='stMetric'] {
-        background-color: #161616;
-        padding: 16px;
-        border-radius: 6px;
-        border: 1px solid #2A2A2A;
-    }
     div[data-testid="stExpander"] {
         background-color: #161616;
         border: 1px solid #2A2A2A;
+    }
+    /* Estilização do Botão Primário da Sidebar */
+    button[kind="primary"] {
+        background-color: #00FFAA !important;
+        color: #0F0F0F !important;
+        font-weight: 800 !important;
+        border: none !important;
+        letter-spacing: 1px;
+    }
+    button[kind="primary"]:hover {
+        background-color: #00CC88 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -33,14 +37,11 @@ def _flatten_columns(df):
         df.columns = df.columns.get_level_values(0)
     return df
 
-# Função crítica para evitar Data Leakage no 4H
 def _resample_ohlcv(df, rule):
-    # Garantir que o index é datetime com timezone removido para consistência
     df.index = pd.to_datetime(df.index).tz_localize(None)
     agg_dict = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
     return df.resample(rule).agg(agg_dict).dropna()
 
-# Cache de 5 minutos para poupar recursos da API e tornar o dashboard ultra-rápido
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_market_data(symbol, period, interval):
     df = yf.download(symbol, period=period, interval=interval, progress=False)
@@ -48,7 +49,7 @@ def fetch_market_data(symbol, period, interval):
         return _flatten_columns(df)
     return pd.DataFrame()
 
-# --- 3. CORE MATHEMATICS (V5.1 CONTINUOUS ENGINE) ---
+# --- 3. CORE MATHEMATICS (INTOCADO - V5.1 CONTINUOUS ENGINE) ---
 def _rolling_zscore(series, window):
     return (series - series.rolling(window).mean()) / series.rolling(window).std()
 
@@ -59,7 +60,6 @@ def calculate_signals_v5_1(df, timeframe, full_history=False):
     ema20 = data['Close'].ewm(span=20, adjust=False).mean()
     ema200 = data['Close'].ewm(span=200, adjust=False).mean()
     
-    # ATR & Squeeze Logic
     tr = pd.concat([(data['High'] - data['Low']), 
                     (data['High'] - data['Close'].shift(1)).abs(), 
                     (data['Low'] - data['Close'].shift(1)).abs()], axis=1).max(axis=1)
@@ -67,31 +67,25 @@ def calculate_signals_v5_1(df, timeframe, full_history=False):
     
     sqz_on = (data['Close'].rolling(20).std() * 2.0 < 1.5 * atr20)
     
-    # Squeeze Decay Factor
     fired_counter = (~sqz_on).groupby(sqz_on.cumsum()).cumsum()
     sqz_decay = np.where((~sqz_on) & (fired_counter <= 5), (6 - fired_counter) / 5, 0)
     
-    # Normalized Momentum
     mom_raw = (data['Close'] - ema20) / atr20.replace(0, np.nan)
     mom_smooth = mom_raw.ewm(span=5).mean()
     mom_z = _rolling_zscore(mom_smooth, z_win)
     
-    # Acceleration (Vulnerabilidade Corrigida: Suavização HFT)
     acc_raw = mom_z.diff().ewm(span=3, adjust=False).mean()
     acc_z = _rolling_zscore(acc_raw, z_win)
     
-    # RVOL (Vulnerabilidade Corrigida: Proteção de Inf/NaN)
     vol_mean = data['Volume'].rolling(20).mean().replace(0, np.nan)
     rvol = (data['Volume'] / vol_mean).replace([np.inf, -np.inf, 0], np.nan)
     rvol_z = _rolling_zscore(np.log(rvol), z_win)
 
-    # Adaptive Weighting
     w_mom, w_acc, w_vol = (0.45, 0.40, 0.15) if timeframe != '1d' else (0.55, 0.30, 0.15)
     
     raw = (w_mom * mom_z.clip(-3, 3) + w_acc * acc_z.clip(-3, 3) + w_vol * rvol_z.clip(-3, 3) * np.sign(mom_z.fillna(0)))
     bias = np.where(sqz_decay > 0, np.sign(mom_z.fillna(0)) * 0.25 * sqz_decay, 0)
     
-    # Regime Contínuo (Risco Overfit Corrigido: Substituída step-function por Tanh)
     slope_z = _rolling_zscore(ema200.diff(), z_win)
     regime_bias = 0.3 * np.tanh(slope_z.fillna(0) / 2.0)
     
@@ -110,7 +104,7 @@ def calculate_signals_v5_1(df, timeframe, full_history=False):
     else:
         return data.iloc[-1:]
 
-# --- 4. VISUAL ENGINE ---
+# --- 4. VISUAL ENGINE (INTOCADO) ---
 def style_matrix(res_df):
     def score_color(val):
         alpha = min(abs(val - 50) / 40, 0.6)
@@ -163,7 +157,6 @@ def build_deep_inspection_chart(symbol, df):
     fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['AccZ'], name="AccZ", line=dict(color="#0055FF", width=1.5, dash='dot')), row=2, col=1)
     fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.2)", width=1), row=2, col=1)
 
-    # Cores de Volume dinâmicas para mostrar a direção do fluxo institucional
     close_delta = df_plot['Close'].diff()
     colors = np.where((df_plot['RVOL'] > 1.2) & (close_delta > 0), "#00FFAA", 
                       np.where((df_plot['RVOL'] > 1.2) & (close_delta < 0), "#FF5C5C", "#444"))
@@ -179,15 +172,20 @@ def build_deep_inspection_chart(symbol, df):
     fig.update_yaxes(showgrid=False, zeroline=False)
     return fig
 
-# --- 5. MAIN DASHBOARD ---
-st.title("🛡️ Alpha Momentum Matrix V5.1")
-st.caption("Quantitative Engine Active | Hedged against Data Leakage & Overfitting")
+# --- 5. MAIN DASHBOARD (UI REFINADO) ---
+st.title("🛡️ Alpha Momentum Matrix")
+st.caption("Quantitative Engine V5.1 Active | Hedged against Data Leakage & Overfitting")
 
+# --- TERMINAL CONFIG (PROFISSIONALIZADO) ---
 with st.sidebar:
-    st.header("Terminal Config")
-    watchlist_raw = st.text_area("Watchlist", "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, TSLA, NVDA, AMZN")
-    tf = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=2)
-    btn = st.button("RUN QUANT SCAN")
+    st.markdown("<h2 style='text-align: center; color: #00FFAA; letter-spacing: 2px;'>⚙️ COMMAND CENTER</h2>", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color: #2A2A2A;'>", unsafe_allow_html=True)
+    
+    watchlist_raw = st.text_area("📡 ACTIVE WATCHLIST (CSV)", "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, TSLA, NVDA, AMZN", height=90)
+    tf = st.selectbox("⏱️ TIMEFRAME RESOLUTION", ["1h", "4h", "1d"], index=2)
+    
+    st.markdown("<hr style='border-color: #2A2A2A;'>", unsafe_allow_html=True)
+    btn = st.button("EXECUTE QUANT SCAN", type="primary", use_container_width=True)
 
 if 'results_df' not in st.session_state: st.session_state['results_df'] = pd.DataFrame()
 
@@ -195,17 +193,14 @@ if btn:
     results = []
     watchlist = [s.strip().upper() for s in watchlist_raw.split(",") if s.strip()]
     
-    with st.spinner("Processing Matrix..."):
+    with st.spinner("Processing High-Frequency Matrix..."):
         for symbol in watchlist:
             try:
-                # 720d evita o hard limit de 730d do yfinance
                 period = "720d" if tf != '1d' else "10y"
                 interval = "60m" if tf != "1d" else "1d"
                 
-                # Fetch usando a cache
                 hist = fetch_market_data(symbol, period, interval)
                 
-                # Resampling crítico para 4H
                 if tf == "4h" and not hist.empty:
                     hist = _resample_ohlcv(hist, '4h')
                 
@@ -228,20 +223,49 @@ if btn:
 if not st.session_state['results_df'].empty:
     res_df = st.session_state['results_df']
     
-    col1, col2, col3 = st.columns(3)
+    # --- MARKET SENTIMENT IMPACTANTE ---
     top_asset = res_df.iloc[0]
-    col1.metric("Top Alpha Pick", top_asset['Asset'], f"{top_asset['Score']:.1f}")
-    col2.metric("Market Sentiment", "BULLISH" if res_df['Score'].mean() > 50 else "BEARISH")
-    col3.metric("Squeeze Alerts", len(res_df[res_df['Squeeze'] == "🔴 ON"]))
+    sentiment_is_bull = res_df['Score'].mean() > 50
+    sentiment_text = "BULLISH 🟢" if sentiment_is_bull else "BEARISH 🔴"
+    sentiment_color = "#00FFAA" if sentiment_is_bull else "#FF5C5C"
+    sqz_count = len(res_df[res_df['Squeeze'] == "🔴 ON"])
+
+    st.markdown(f"""
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 25px;">
+        <div style="flex: 1; background-color: #161616; padding: 20px; border-radius: 8px; border: 1px solid #2A2A2A; text-align: center; min-width: 200px;">
+            <p style="color: #888; font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Top Alpha Pick</p>
+            <h2 style="color: #EAF2FF; margin: 5px 0 0 0; font-size: 28px;">{top_asset['Asset']} <span style="color: #00FFAA; font-size: 18px;">({top_asset['Score']:.1f})</span></h2>
+        </div>
+        <div style="flex: 1; background-color: #111; padding: 20px; border-radius: 8px; border: 1px solid {sentiment_color}; text-align: center; border-bottom: 4px solid {sentiment_color}; min-width: 200px;">
+            <p style="color: #888; font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Market Sentiment</p>
+            <h2 style="color: {sentiment_color}; margin: 5px 0 0 0; font-size: 28px; letter-spacing: 2px;">{sentiment_text}</h2>
+        </div>
+        <div style="flex: 1; background-color: #161616; padding: 20px; border-radius: 8px; border: 1px solid #2A2A2A; text-align: center; min-width: 200px;">
+            <p style="color: #888; font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Squeeze Alerts</p>
+            <h2 style="color: #0055FF; margin: 5px 0 0 0; font-size: 28px;">{sqz_count} <span style="font-size: 14px; color: #888;">ATIVOS</span></h2>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("Institutional Confluence Matrix")
+    st.dataframe(style_matrix(res_df), use_container_width=True, height=300)
     
     st.divider()
-    st.dataframe(style_matrix(res_df), use_container_width=True, height=300)
-    st.divider()
+    
+    # --- LEGENDA DO RADAR TÁTICO ---
+    st.markdown("""
+    <div style="padding: 12px 20px; background-color: #161616; border-left: 4px solid #00FFAA; border-radius: 4px; margin-bottom: -15px;">
+        <span style="color: #EAF2FF; font-weight: bold; font-size: 16px;">🎯 RADAR DE EDGE:</span>
+        <span style="color: #A0AEC0; font-size: 14px;"> <b>Cima Direita:</b> Expansão Institucional (Long) &nbsp;|&nbsp; <b>Baixo Esquerda:</b> Capitulação (Short)</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
     st.plotly_chart(build_rotation_radar(res_df), use_container_width=True, config={'displayModeBar': False})
+    
     st.divider()
     
     st.subheader("Asset Deep Inspection")
-    target = st.selectbox("Select asset:", res_df['Asset'].tolist())
+    target = st.selectbox("Select precise asset to inspect:", res_df['Asset'].tolist())
     
     if target:
         period = "720d" if tf != '1d' else "5y"
@@ -253,4 +277,13 @@ if not st.session_state['results_df'].empty:
             
         if len(target_hist) > 200:
             full_sigs = calculate_signals_v5_1(target_hist, tf, full_history=True)
+            
+            # --- LEGENDA DO RAIO-X INSTITUCIONAL ---
+            st.markdown("""
+            <div style="padding: 12px 20px; background-color: #161616; border-left: 4px solid #0055FF; border-radius: 4px; margin-bottom: -15px;">
+                <span style="color: #EAF2FF; font-weight: bold; font-size: 16px;">🔬 RAIO-X INSTITUCIONAL:</span>
+                <span style="color: #A0AEC0; font-size: 14px;"> <b>Zonas Azuis:</b> Squeeze Ativo &nbsp;|&nbsp; <b>Barras Volume (Verde/Vermelho):</b> Injeção Institucional (>1.2x)</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
             st.plotly_chart(build_deep_inspection_chart(target, full_sigs), use_container_width=True, config={'displayModeBar': False})

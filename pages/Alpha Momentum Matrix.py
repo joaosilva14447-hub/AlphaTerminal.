@@ -241,7 +241,6 @@ st.caption(
     "relative volume confirmation, and a stricter structural regime engine."
 )
 
-
 TIMEFRAME_CONFIG = {
     "1h": {
         "download_interval": "60m",
@@ -253,7 +252,6 @@ TIMEFRAME_CONFIG = {
         "min_squeeze_bars": 4,
         "display_bars": 240,
         "min_history": 320,
-        "backtest_horizon": 12,
         "weights": {"mom": 0.42, "acc": 0.28, "trend": 0.20, "vol": 0.10},
     },
     "4h": {
@@ -266,7 +264,6 @@ TIMEFRAME_CONFIG = {
         "min_squeeze_bars": 3,
         "display_bars": 220,
         "min_history": 260,
-        "backtest_horizon": 8,
         "weights": {"mom": 0.44, "acc": 0.24, "trend": 0.22, "vol": 0.10},
     },
     "1d": {
@@ -279,13 +276,11 @@ TIMEFRAME_CONFIG = {
         "min_squeeze_bars": 3,
         "display_bars": 240,
         "min_history": 240,
-        "backtest_horizon": 5,
         "weights": {"mom": 0.47, "acc": 0.18, "trend": 0.25, "vol": 0.10},
     },
 }
 
 DEFAULT_WATCHLIST = "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, AAPL"
-ASSET_CLASS_OPTIONS = ["Crypto", "Futures", "Index", "ETF", "Equity", "FX"]
 
 
 def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -375,16 +370,14 @@ def _squeeze_ranges(index: pd.Index, mask: pd.Series) -> list[tuple[pd.Timestamp
     return ranges
 
 
-def _bias_label(score: float, long_threshold: float, short_threshold: float) -> str:
-    strong_long = min(long_threshold + 13, 85)
-    strong_short = max(short_threshold - 13, 15)
-    if score >= strong_long:
+def _bias_label(score: float) -> str:
+    if score >= 70:
         return "Strong Long"
-    if score >= long_threshold:
+    if score >= 57:
         return "Long"
-    if score <= strong_short:
+    if score <= 30:
         return "Strong Short"
-    if score <= short_threshold:
+    if score <= 43:
         return "Short"
     return "Neutral"
 
@@ -464,123 +457,6 @@ def _data_health_label(volume_quality: float, bars: int, min_history: int) -> st
     return "Healthy"
 
 
-def _classify_asset(symbol: str) -> str:
-    upper = symbol.upper()
-    if upper.startswith("^"):
-        return "Index"
-    if upper.endswith("=F"):
-        return "Futures"
-    if upper.endswith("=X"):
-        return "FX"
-    if "-" in upper and (
-        upper.endswith("-USD")
-        or upper.endswith("-USDT")
-        or upper.endswith("-BTC")
-        or upper.endswith("-ETH")
-        or upper.endswith("-EUR")
-    ):
-        return "Crypto"
-    if upper in {"SPY", "QQQ", "IWM", "DIA", "TLT", "GLD", "SLV", "XLF", "XLE", "XLK", "ARKK"}:
-        return "ETF"
-    return "Equity"
-
-
-def _alert_label(
-    score: float,
-    prev_score: float,
-    regime: str,
-    squeeze_on: bool,
-    squeeze_duration: int,
-    momentum_z: float,
-    accel_z: float,
-    min_squeeze_bars: int,
-    long_threshold: float,
-    short_threshold: float,
-) -> str:
-    if (
-        score >= long_threshold
-        and prev_score < long_threshold
-        and regime == "Bull"
-        and momentum_z > 0
-        and accel_z > -0.25
-        and not squeeze_on
-    ):
-        return "Long Entry"
-    if (
-        score <= short_threshold
-        and prev_score > short_threshold
-        and regime == "Bear"
-        and momentum_z < 0
-        and accel_z < 0.25
-        and not squeeze_on
-    ):
-        return "Short Entry"
-    if prev_score >= long_threshold and (score < 50 or momentum_z < 0 or regime != "Bull"):
-        return "Long Exit"
-    if prev_score <= short_threshold and (score > 50 or momentum_z > 0 or regime != "Bear"):
-        return "Short Exit"
-    if squeeze_on and squeeze_duration >= min_squeeze_bars:
-        return "Compression Watch"
-    if score >= long_threshold and regime == "Bull":
-        return "Bull Watch"
-    if score <= short_threshold and regime == "Bear":
-        return "Bear Watch"
-    return "Hold"
-
-
-def _backtest_summary(df: pd.DataFrame, timeframe: str) -> dict[str, float]:
-    horizon = TIMEFRAME_CONFIG[timeframe]["backtest_horizon"]
-    if df.empty or len(df) <= horizon + 5:
-        return {"signals": 0, "hit_rate": np.nan, "avg_return": np.nan}
-
-    forward_return = df["Close"].shift(-horizon) / df["Close"] - 1.0
-    long_signal = df["Alert"] == "Long Entry"
-    short_signal = df["Alert"] == "Short Entry"
-    trade_return = pd.Series(np.nan, index=df.index, dtype=float)
-    trade_return.loc[long_signal] = forward_return.loc[long_signal]
-    trade_return.loc[short_signal] = -forward_return.loc[short_signal]
-
-    hit_mask = pd.Series(np.nan, index=df.index, dtype=float)
-    hit_mask.loc[long_signal] = (forward_return.loc[long_signal] > 0).astype(float)
-    hit_mask.loc[short_signal] = (forward_return.loc[short_signal] < 0).astype(float)
-
-    valid_trades = trade_return.dropna()
-    if valid_trades.empty:
-        return {"signals": 0, "hit_rate": np.nan, "avg_return": np.nan}
-
-    return {
-        "signals": float(len(valid_trades)),
-        "hit_rate": float(hit_mask.dropna().mean()),
-        "avg_return": float(valid_trades.mean()),
-    }
-
-
-def _backtest_trade_log(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
-    horizon = TIMEFRAME_CONFIG[timeframe]["backtest_horizon"]
-    if df.empty or len(df) <= horizon + 5:
-        return pd.DataFrame()
-
-    forward_return = df["Close"].shift(-horizon) / df["Close"] - 1.0
-    long_signal = df["Alert"] == "Long Entry"
-    short_signal = df["Alert"] == "Short Entry"
-
-    trade_log = pd.DataFrame(index=df.index)
-    trade_log["Direction"] = pd.Series(index=df.index, dtype="object")
-    trade_log.loc[long_signal, "Direction"] = "Long"
-    trade_log.loc[short_signal, "Direction"] = "Short"
-    trade_log["Forward Return"] = forward_return
-    trade_log["Strategy Return"] = np.where(long_signal, forward_return, np.where(short_signal, -forward_return, np.nan))
-    trade_log = trade_log.dropna(subset=["Direction", "Strategy Return"]).copy()
-    if trade_log.empty:
-        return trade_log
-
-    trade_log["Hit"] = (trade_log["Strategy Return"] > 0).astype(int)
-    trade_log["Equity"] = (1.0 + trade_log["Strategy Return"]).cumprod()
-    trade_log["Trade"] = np.arange(1, len(trade_log) + 1)
-    trade_log = trade_log.reset_index().rename(columns={"index": "Signal Time"})
-    return trade_log
-
-
 def _ensure_results_schema(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
@@ -588,12 +464,10 @@ def _ensure_results_schema(df: pd.DataFrame) -> pd.DataFrame:
     normalized = df.copy()
     defaults: dict[str, object] = {
         "Asset": "",
-        "Asset Class": "Unknown",
         "Price": np.nan,
         "Regime": "Range",
         "Bias": "Neutral",
         "Setup": "Transition",
-        "Alert": "Hold",
         "Setup Score": 50.0,
         "Confidence": 0.50,
         "Squeeze": "OFF",
@@ -603,9 +477,6 @@ def _ensure_results_schema(df: pd.DataFrame) -> pd.DataFrame:
         "Trend Z": 0.0,
         "RVOL": 1.0,
         "NATR %": np.nan,
-        "BT Signals": 0,
-        "BT Hit Rate": np.nan,
-        "BT Avg %": np.nan,
         "Data Health": "Mixed",
     }
 
@@ -623,9 +494,6 @@ def _ensure_results_schema(df: pd.DataFrame) -> pd.DataFrame:
         "Trend Z",
         "RVOL",
         "NATR %",
-        "BT Signals",
-        "BT Hit Rate",
-        "BT Avg %",
     ]
     for column in numeric_columns:
         normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
@@ -637,66 +505,10 @@ def _ensure_results_schema(df: pd.DataFrame) -> pd.DataFrame:
     normalized["Acceleration Z"] = normalized["Acceleration Z"].fillna(0.0)
     normalized["Trend Z"] = normalized["Trend Z"].fillna(0.0)
     normalized["RVOL"] = normalized["RVOL"].fillna(1.0)
-    normalized["BT Signals"] = normalized["BT Signals"].fillna(0).astype(int)
     normalized["Data Health"] = normalized["Data Health"].fillna("Mixed").astype(str)
-    normalized["Asset Class"] = normalized["Asset Class"].fillna("Unknown").astype(str)
-    normalized["Alert"] = normalized["Alert"].fillna("Hold").astype(str)
 
     return normalized
 
-
-def _ensure_trades_schema(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-
-    normalized = df.copy()
-
-    if "Signal Time" not in normalized.columns:
-        if "index" in normalized.columns:
-            normalized = normalized.rename(columns={"index": "Signal Time"})
-        elif "Date" in normalized.columns:
-            normalized = normalized.rename(columns={"Date": "Signal Time"})
-        elif "Timestamp" in normalized.columns:
-            normalized = normalized.rename(columns={"Timestamp": "Signal Time"})
-        elif isinstance(normalized.index, pd.DatetimeIndex):
-            index_name = normalized.index.name or "Signal Time"
-            normalized = normalized.reset_index().rename(columns={index_name: "Signal Time"})
-        else:
-            normalized["Signal Time"] = np.arange(len(normalized))
-
-    defaults: dict[str, object] = {
-        "Asset": "Unknown",
-        "Asset Class": "Unknown",
-        "Direction": "Unknown",
-        "Forward Return": np.nan,
-        "Strategy Return": np.nan,
-        "Hit": np.nan,
-        "Equity": np.nan,
-        "Trade": np.nan,
-    }
-    for column, default_value in defaults.items():
-        if column not in normalized.columns:
-            normalized[column] = default_value
-
-    normalized["Signal Time"] = pd.to_datetime(normalized["Signal Time"], errors="coerce")
-    if normalized["Signal Time"].isna().all():
-        normalized["Signal Time"] = np.arange(len(normalized))
-    else:
-        fallback_mask = normalized["Signal Time"].isna()
-        if fallback_mask.any():
-            normalized.loc[fallback_mask, "Signal Time"] = pd.Timestamp("1970-01-01") + pd.to_timedelta(
-                np.arange(fallback_mask.sum()),
-                unit="D",
-            )
-
-    for column in ["Forward Return", "Strategy Return", "Hit", "Equity", "Trade"]:
-        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
-
-    normalized["Asset"] = normalized["Asset"].fillna("Unknown").astype(str)
-    normalized["Asset Class"] = normalized["Asset Class"].fillna("Unknown").astype(str)
-    normalized["Direction"] = normalized["Direction"].fillna("Unknown").astype(str)
-
-    return normalized
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_price_history(ticker: str, timeframe: str) -> tuple[pd.DataFrame, str | None]:
@@ -736,7 +548,7 @@ def fetch_price_history(ticker: str, timeframe: str) -> tuple[pd.DataFrame, str 
     return df, None
 
 
-def calculate_signals(df: pd.DataFrame, timeframe: str, long_threshold: float, short_threshold: float) -> pd.DataFrame:
+def calculate_signals(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     config = TIMEFRAME_CONFIG[timeframe]
     weights = config["weights"]
 
@@ -763,20 +575,15 @@ def calculate_signals(df: pd.DataFrame, timeframe: str, long_threshold: float, s
     squeeze_on = (bb_lower > kc_lower) & (bb_upper < kc_upper)
     squeeze_group = (~squeeze_on).cumsum()
     squeeze_duration = squeeze_on.groupby(squeeze_group).cumsum().fillna(0).astype(int)
-    prior_squeeze_duration = (
-        squeeze_duration.where(squeeze_on).ffill().shift(1).fillna(0).astype(int)
-    )
+    prior_squeeze_duration = squeeze_duration.where(squeeze_on).ffill().shift(1).fillna(0).astype(int)
     squeeze_fired = (~squeeze_on) & squeeze_on.shift(1).fillna(False)
-    post_squeeze_bars = (
-        (~squeeze_on).groupby(squeeze_on.cumsum()).cumsum().fillna(0).astype(int)
-    )
+    post_squeeze_bars = (~squeeze_on).groupby(squeeze_on.cumsum()).cumsum().fillna(0).astype(int)
     release_decay = pd.Series(
         np.where(
             (~squeeze_on)
             & (prior_squeeze_duration >= config["min_squeeze_bars"])
             & (post_squeeze_bars <= config["release_decay_bars"]),
-            (config["release_decay_bars"] + 1 - post_squeeze_bars)
-            / config["release_decay_bars"],
+            (config["release_decay_bars"] + 1 - post_squeeze_bars) / config["release_decay_bars"],
             0.0,
         ),
         index=data.index,
@@ -795,9 +602,14 @@ def calculate_signals(df: pd.DataFrame, timeframe: str, long_threshold: float, s
 
     regime_slope = ema_200.pct_change(config["regime_window"])
     regime_distance = (ema_50 - ema_200) / atr_20.replace(0.0, np.nan)
-    bull_mask = (close > ema_200) & (ema_50 > ema_200) & (regime_slope > 0)
-    bear_mask = (close < ema_200) & (ema_50 < ema_200) & (regime_slope < 0)
-    regime = np.select([bull_mask, bear_mask], ["Bull", "Bear"], default="Range")
+    regime = np.select(
+        [
+            (close > ema_200) & (ema_50 > ema_200) & (regime_slope > 0),
+            (close < ema_200) & (ema_50 < ema_200) & (regime_slope < 0),
+        ],
+        ["Bull", "Bear"],
+        default="Range",
+    )
 
     directional_raw = (
         weights["mom"] * momentum_z.clip(-3, 3)
@@ -805,13 +617,15 @@ def calculate_signals(df: pd.DataFrame, timeframe: str, long_threshold: float, s
         + weights["trend"] * trend_z.clip(-3, 3)
         + weights["vol"] * rvol_z.clip(-3, 3) * np.sign(momentum_z.fillna(0.0))
     )
-
-    regime_bias = pd.Series(0.0, index=data.index)
-    bull_distance = regime_distance.clip(lower=0, upper=2).fillna(0.0)
-    bear_distance = regime_distance.clip(lower=-2, upper=0).fillna(0.0)
-    regime_bias.loc[bull_mask] = 0.18 + bull_distance.loc[bull_mask] * 0.08
-    regime_bias.loc[bear_mask] = -0.18 + bear_distance.loc[bear_mask] * 0.08
-
+    regime_bias = np.where(
+        regime == "Bull",
+        0.18 + regime_distance.clip(lower=0, upper=2).fillna(0.0) * 0.08,
+        np.where(
+            regime == "Bear",
+            -0.18 + regime_distance.clip(lower=-2, upper=0).fillna(0.0) * 0.08,
+            0.0,
+        ),
+    )
     release_bias = np.sign(momentum_z.fillna(0.0)) * 0.25 * release_decay
     compression_drag = np.where(
         squeeze_on,
@@ -830,7 +644,6 @@ def calculate_signals(df: pd.DataFrame, timeframe: str, long_threshold: float, s
         + 0.15 * np.minimum(trend_z.abs().fillna(0.0), 2.0) / 2.0
         + 0.10 * np.minimum(np.abs(setup_score - 50.0), 35.0) / 35.0
     ).clip(0, 1)
-    prev_score = setup_score.shift(1).fillna(50.0)
 
     data["EMA20"] = ema_20
     data["EMA50"] = ema_50
@@ -859,30 +672,11 @@ def calculate_signals(df: pd.DataFrame, timeframe: str, long_threshold: float, s
     data["RegimeDistance"] = regime_distance
     data["Confidence"] = confidence
     data["VolumeQuality"] = volume_quality
-    data["PrevScore"] = prev_score
-    data["Bias"] = data["SetupScore"].apply(
-        lambda score: _bias_label(score, long_threshold, short_threshold)
-    )
+    data["Bias"] = data["SetupScore"].apply(_bias_label)
 
     data["Setup"] = [
-        _setup_label(
-            regime_value,
-            squeeze_value,
-            fired_value,
-            momentum_value,
-            accel_value,
-            rvol_value,
-            score_value,
-        )
-        for (
-            regime_value,
-            squeeze_value,
-            fired_value,
-            momentum_value,
-            accel_value,
-            rvol_value,
-            score_value,
-        ) in zip(
+        _setup_label(regime_value, squeeze_value, fired_value, momentum_value, accel_value, rvol_value, score_value)
+        for regime_value, squeeze_value, fired_value, momentum_value, accel_value, rvol_value, score_value in zip(
             data["Regime"],
             data["SqueezeOn"],
             data["SqueezeFired"],
@@ -890,38 +684,6 @@ def calculate_signals(df: pd.DataFrame, timeframe: str, long_threshold: float, s
             data["AccelerationZ"].fillna(0.0),
             data["RVOL"].fillna(0.0),
             data["SetupScore"].fillna(50.0),
-        )
-    ]
-
-    data["Alert"] = [
-        _alert_label(
-            score_value,
-            prev_score_value,
-            regime_value,
-            squeeze_value,
-            squeeze_bars_value,
-            momentum_value,
-            accel_value,
-            config["min_squeeze_bars"],
-            long_threshold,
-            short_threshold,
-        )
-        for (
-            score_value,
-            prev_score_value,
-            regime_value,
-            squeeze_value,
-            squeeze_bars_value,
-            momentum_value,
-            accel_value,
-        ) in zip(
-            data["SetupScore"].fillna(50.0),
-            data["PrevScore"].fillna(50.0),
-            data["Regime"],
-            data["SqueezeOn"],
-            data["SqueezeDuration"].fillna(0),
-            data["MomentumZ"].fillna(0.0),
-            data["AccelerationZ"].fillna(0.0),
         )
     ]
 
@@ -997,6 +759,7 @@ def build_overview_chart(symbol: str, df: pd.DataFrame) -> go.Figure:
         row=1,
         col=1,
     )
+
     release_points = df[df["SqueezeFired"]]
     if not release_points.empty:
         fig.add_trace(
@@ -1012,49 +775,6 @@ def build_overview_chart(symbol: str, df: pd.DataFrame) -> go.Figure:
                 ),
                 name="Release",
                 hovertemplate="%{x}<br>Release price=%{y:,.2f}<extra></extra>",
-            ),
-            row=1,
-            col=1,
-        )
-    long_entries = df[df["Alert"] == "Long Entry"]
-    short_entries = df[df["Alert"] == "Short Entry"]
-    exits = df[df["Alert"].isin(["Long Exit", "Short Exit"])]
-
-    if not long_entries.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=long_entries.index,
-                y=long_entries["Close"],
-                mode="markers",
-                marker=dict(size=10, color="#00FFAA", symbol="triangle-up", line=dict(color="#0F0F0F", width=1)),
-                name="Long Entry",
-                hovertemplate="%{x}<br>Long entry=%{y:,.2f}<extra></extra>",
-            ),
-            row=1,
-            col=1,
-        )
-    if not short_entries.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=short_entries.index,
-                y=short_entries["Close"],
-                mode="markers",
-                marker=dict(size=10, color="#FF5C5C", symbol="triangle-down", line=dict(color="#0F0F0F", width=1)),
-                name="Short Entry",
-                hovertemplate="%{x}<br>Short entry=%{y:,.2f}<extra></extra>",
-            ),
-            row=1,
-            col=1,
-        )
-    if not exits.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=exits.index,
-                y=exits["Close"],
-                mode="markers",
-                marker=dict(size=8, color="#FFB86B", symbol="circle", line=dict(color="#0F0F0F", width=1)),
-                name="Exit",
-                hovertemplate="%{x}<br>Exit=%{y:,.2f}<extra></extra>",
             ),
             row=1,
             col=1,
@@ -1160,6 +880,7 @@ def build_overview_chart(symbol: str, df: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(title="RVOL", row=4, col=1)
     return fig
 
+
 def build_scatter_chart(results: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.add_shape(type="rect", x0=0, y0=0, x1=3.5, y1=3.5, fillcolor="rgba(0, 255, 170, 0.04)", line_width=0)
@@ -1190,9 +911,7 @@ def build_scatter_chart(results: pd.DataFrame) -> go.Figure:
             ),
             customdata=np.stack(
                 [
-                    results["Asset Class"],
                     results["Setup"],
-                    results["Alert"],
                     results["Regime"],
                     results["Setup Score"],
                     results["RVOL"],
@@ -1205,18 +924,16 @@ def build_scatter_chart(results: pd.DataFrame) -> go.Figure:
             ),
             hovertemplate=(
                 "%{text}<br>"
-                "Class=%{customdata[0]}<br>"
                 "Momentum Z=%{x:.2f}<br>"
                 "Acceleration Z=%{y:.2f}<br>"
-                "Setup=%{customdata[1]}<br>"
-                "Alert=%{customdata[2]}<br>"
-                "Regime=%{customdata[3]}<br>"
-                "Score=%{customdata[4]:.1f}<br>"
-                "RVOL=%{customdata[5]:.2f}<br>"
-                "Trend Z=%{customdata[6]:.2f}<br>"
-                "Confidence=%{customdata[7]:.2f}<br>"
-                "Squeeze Bars=%{customdata[8]}<br>"
-                "Data=%{customdata[9]}<extra></extra>"
+                "Setup=%{customdata[0]}<br>"
+                "Regime=%{customdata[1]}<br>"
+                "Score=%{customdata[2]:.1f}<br>"
+                "RVOL=%{customdata[3]:.2f}<br>"
+                "Trend Z=%{customdata[4]:.2f}<br>"
+                "Confidence=%{customdata[5]:.2f}<br>"
+                "Squeeze Bars=%{customdata[6]}<br>"
+                "Data=%{customdata[7]}<extra></extra>"
             ),
             showlegend=False,
         )
@@ -1236,69 +953,6 @@ def build_scatter_chart(results: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def build_equity_curve_chart(trades: pd.DataFrame) -> go.Figure:
-    ordered = _ensure_trades_schema(trades)
-    ordered = ordered.dropna(subset=["Strategy Return"]).sort_values("Signal Time").copy()
-    ordered["Portfolio Equity"] = (1.0 + ordered["Strategy Return"]).cumprod()
-    ordered["Peak"] = ordered["Portfolio Equity"].cummax()
-    ordered["Drawdown"] = ordered["Portfolio Equity"] / ordered["Peak"] - 1.0
-
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.05,
-        row_heights=[0.72, 0.28],
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=ordered["Signal Time"],
-            y=ordered["Portfolio Equity"],
-            mode="lines+markers",
-            line=dict(color="#00FFAA", width=2),
-            marker=dict(size=6, color=np.where(ordered["Direction"] == "Long", "#00FFAA", "#FF5C5C")),
-            name="Equity",
-            customdata=np.stack(
-                [ordered["Asset"], ordered["Direction"], ordered["Strategy Return"] * 100.0],
-                axis=1,
-            ),
-            hovertemplate=(
-                "%{x}<br>"
-                "Asset=%{customdata[0]}<br>"
-                "Direction=%{customdata[1]}<br>"
-                "Trade Return=%{customdata[2]:+.2f}%<br>"
-                "Equity=%{y:.2f}<extra></extra>"
-            ),
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Bar(
-            x=ordered["Signal Time"],
-            y=ordered["Drawdown"] * 100.0,
-            marker_color="rgba(255,92,92,0.55)",
-            name="Drawdown",
-            hovertemplate="%{x}<br>Drawdown=%{y:.2f}%<extra></extra>",
-        ),
-        row=2,
-        col=1,
-    )
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0F0F0F",
-        plot_bgcolor="#0F0F0F",
-        height=620,
-        margin=dict(l=40, r=30, t=40, b=30),
-        title=dict(text="Backtest Equity Curve", font=dict(size=18, color="#EAF2FF")),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-    )
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(title="Equity", showgrid=False, row=1, col=1)
-    fig.update_yaxes(title="Drawdown %", showgrid=False, row=2, col=1)
-    return fig
-
-
 def render_signal_board(df: pd.DataFrame) -> None:
     records = df.to_dict(orient="records")
     top_cards_html: list[str] = []
@@ -1312,8 +966,6 @@ def render_signal_board(df: pd.DataFrame) -> None:
                 f'<div class="signal-score-pill" style="background:{fill};">{row_data["Setup Score"]:.1f}</div></div>'
                 f'<div class="signal-card-setup">{html.escape(str(row_data["Setup"]))}</div>'
                 f'<div class="signal-card-meta">'
-                f'<span class="signal-badge badge-neutral">{html.escape(str(row_data["Asset Class"]))}</span>'
-                f'<span class="signal-badge {_badge_class(str(row_data["Alert"]), "Alert")}">{html.escape(str(row_data["Alert"]))}</span>'
                 f'<span class="signal-badge {_badge_class(str(row_data["Regime"]), "Regime")}">{html.escape(str(row_data["Regime"]))}</span>'
                 f'<span class="signal-badge {_badge_class(str(row_data["Bias"]), "Bias")}">{html.escape(str(row_data["Bias"]))}</span>'
                 f'<span class="signal-badge {_badge_class(str(row_data["Squeeze"]), "Squeeze")}">Squeeze {html.escape(str(row_data["Squeeze"]))}</span>'
@@ -1341,9 +993,7 @@ def render_signal_board(df: pd.DataFrame) -> None:
                 "<tr>"
                 f'<td class="rank-cell">{rank:02d}</td>'
                 f'<td class="asset-cell">{html.escape(str(row_data["Asset"]))}</td>'
-                f'<td>{html.escape(str(row_data["Asset Class"]))}</td>'
                 f'<td><span class="signal-badge {_badge_class(str(row_data["Setup"]), "Setup")}">{html.escape(str(row_data["Setup"]))}</span></td>'
-                f'<td><span class="signal-badge {_badge_class(str(row_data["Alert"]), "Alert")}">{html.escape(str(row_data["Alert"]))}</span></td>'
                 f'<td><span class="signal-badge {_badge_class(str(row_data["Bias"]), "Bias")}">{html.escape(str(row_data["Bias"]))}</span></td>'
                 f'<td><span class="signal-badge {_badge_class(str(row_data["Regime"]), "Regime")}">{html.escape(str(row_data["Regime"]))}</span></td>'
                 f'<td class="score-cell"><div class="score-shell"><div class="score-fill" style="width:{score:.1f}%; background:{fill};"></div></div><div class="score-text">{score:.1f}/100</div></td>'
@@ -1365,7 +1015,7 @@ def render_signal_board(df: pd.DataFrame) -> None:
         "</div></div>"
         f'<div class="signal-board-grid">{"".join(top_cards_html)}</div>'
         '<div class="signal-table"><table><thead><tr>'
-        "<th>#</th><th>Asset</th><th>Class</th><th>Setup</th><th>Alert</th><th>Bias</th><th>Regime</th><th>Score</th>"
+        "<th>#</th><th>Asset</th><th>Setup</th><th>Bias</th><th>Regime</th><th>Score</th>"
         "<th>Momentum</th><th>Accel</th><th>Trend</th><th>RVOL</th><th>SQZ</th><th>Data</th>"
         f'</tr></thead><tbody>{"".join(rows_html)}</tbody></table></div></div>'
     )
@@ -1377,9 +1027,6 @@ with st.sidebar:
         st.header("Radar Controls")
         watchlist_text = st.text_area("Watchlist", DEFAULT_WATCHLIST, height=120)
         timeframe = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=2)
-        selected_asset_classes = st.multiselect("Asset Classes", ASSET_CLASS_OPTIONS, default=ASSET_CLASS_OPTIONS)
-        long_threshold = st.slider("Long Threshold", min_value=52, max_value=75, value=57, step=1)
-        short_threshold = st.slider("Short Threshold", min_value=25, max_value=48, value=43, step=1)
         top_n = st.slider("Rows displayed", min_value=4, max_value=20, value=10, step=1)
         submitted = st.form_submit_button("Analyze Market")
 
@@ -1389,8 +1036,6 @@ if run_analysis:
     tickers = _clean_watchlist(watchlist_text)
     results_rows: list[dict[str, object]] = []
     histories: dict[str, pd.DataFrame] = {}
-    backtests: list[dict[str, object]] = []
-    trades_log: list[pd.DataFrame] = []
     failures: list[str] = []
     config = TIMEFRAME_CONFIG[timeframe]
 
@@ -1409,7 +1054,7 @@ if run_analysis:
                 continue
 
             try:
-                enriched = calculate_signals(raw, timeframe, float(long_threshold), float(short_threshold))
+                enriched = calculate_signals(raw, timeframe)
             except Exception as exc:
                 failures.append(f"{symbol}: signal engine failed ({exc})")
                 continue
@@ -1419,20 +1064,16 @@ if run_analysis:
                 continue
 
             last = enriched.iloc[-1]
-            backtest = _backtest_summary(enriched, timeframe)
-            trade_log = _backtest_trade_log(enriched, timeframe)
             volume_quality = float(last["VolumeQuality"]) if pd.notna(last["VolumeQuality"]) else 0.0
             data_health = _data_health_label(volume_quality, len(raw), config["min_history"])
             histories[symbol] = enriched.tail(config["display_bars"])
             results_rows.append(
                 {
                     "Asset": symbol,
-                    "Asset Class": _classify_asset(symbol),
                     "Price": float(last["Close"]),
                     "Regime": str(last["Regime"]),
                     "Bias": str(last["Bias"]),
                     "Setup": str(last["Setup"]),
-                    "Alert": str(last["Alert"]),
                     "Setup Score": float(last["SetupScore"]),
                     "Confidence": float(last["Confidence"]),
                     "Squeeze": "ON" if bool(last["SqueezeOn"]) else "OFF",
@@ -1442,24 +1083,7 @@ if run_analysis:
                     "Trend Z": float(last["TrendZ"]),
                     "RVOL": float(last["RVOL"]),
                     "NATR %": float(last["NATR"]),
-                    "BT Signals": int(backtest["signals"]),
-                    "BT Hit Rate": float(backtest["hit_rate"]) if pd.notna(backtest["hit_rate"]) else np.nan,
-                    "BT Avg %": float(backtest["avg_return"] * 100.0) if pd.notna(backtest["avg_return"]) else np.nan,
                     "Data Health": data_health,
-                }
-            )
-            if not trade_log.empty:
-                trade_log = trade_log.copy()
-                trade_log["Asset"] = symbol
-                trade_log["Asset Class"] = _classify_asset(symbol)
-                trades_log.append(trade_log)
-            backtests.append(
-                {
-                    "Asset": symbol,
-                    "Asset Class": _classify_asset(symbol),
-                    "Signals": int(backtest["signals"]),
-                    "Hit Rate": float(backtest["hit_rate"]) if pd.notna(backtest["hit_rate"]) else np.nan,
-                    "Avg Return %": float(backtest["avg_return"] * 100.0) if pd.notna(backtest["avg_return"]) else np.nan,
                 }
             )
 
@@ -1468,45 +1092,19 @@ if run_analysis:
         results_df["Directional Edge"] = (results_df["Setup Score"] - 50.0).abs()
         results_df["Ranking Score"] = results_df["Directional Edge"] * (0.75 + 0.25 * results_df["Confidence"])
         results_df = results_df.sort_values(["Ranking Score", "Setup Score"], ascending=[False, False]).reset_index(drop=True)
-        results_df["Class Rank"] = results_df.groupby("Asset Class").cumcount() + 1
+
     st.session_state["alpha_momentum_results"] = results_df
     st.session_state["alpha_momentum_histories"] = histories
-    st.session_state["alpha_momentum_backtests"] = pd.DataFrame(backtests)
-    st.session_state["alpha_momentum_trades"] = pd.concat(trades_log, ignore_index=True) if trades_log else pd.DataFrame()
     st.session_state["alpha_momentum_failures"] = failures
     st.session_state["alpha_momentum_timeframe"] = timeframe
-    st.session_state["alpha_momentum_asset_classes"] = selected_asset_classes
-    st.session_state["alpha_momentum_long_threshold"] = float(long_threshold)
-    st.session_state["alpha_momentum_short_threshold"] = float(short_threshold)
 
 results_df = st.session_state.get("alpha_momentum_results", pd.DataFrame())
 histories = st.session_state.get("alpha_momentum_histories", {})
-backtest_df = st.session_state.get("alpha_momentum_backtests", pd.DataFrame())
-trades_df = st.session_state.get("alpha_momentum_trades", pd.DataFrame())
 failures = st.session_state.get("alpha_momentum_failures", [])
 active_timeframe = st.session_state.get("alpha_momentum_timeframe", timeframe)
-active_asset_classes = st.session_state.get("alpha_momentum_asset_classes", selected_asset_classes)
-active_long_threshold = float(st.session_state.get("alpha_momentum_long_threshold", long_threshold))
-active_short_threshold = float(st.session_state.get("alpha_momentum_short_threshold", short_threshold))
+
 results_df = _ensure_results_schema(results_df)
-if isinstance(trades_df, pd.DataFrame) and not trades_df.empty:
-    trades_df = _ensure_trades_schema(trades_df)
-    st.session_state["alpha_momentum_trades"] = trades_df
-results_df["Directional Edge"] = (results_df["Setup Score"] - 50.0).abs()
-results_df["Ranking Score"] = results_df["Directional Edge"] * (0.75 + 0.25 * results_df["Confidence"])
-results_df = results_df.sort_values(["Ranking Score", "Setup Score"], ascending=[False, False]).reset_index(drop=True)
-results_df["Class Rank"] = results_df.groupby("Asset Class").cumcount() + 1
 st.session_state["alpha_momentum_results"] = results_df
-
-if active_asset_classes:
-    filtered_results_df = results_df[results_df["Asset Class"].isin(active_asset_classes)].copy()
-else:
-    filtered_results_df = pd.DataFrame()
-
-if isinstance(backtest_df, pd.DataFrame) and not backtest_df.empty and active_asset_classes:
-    backtest_df = backtest_df[backtest_df["Asset Class"].isin(active_asset_classes)].copy()
-if isinstance(trades_df, pd.DataFrame) and not trades_df.empty and active_asset_classes:
-    trades_df = trades_df[trades_df["Asset Class"].isin(active_asset_classes)].copy()
 
 if results_df.empty:
     st.warning("No assets returned enough clean data to compute the matrix.")
@@ -1516,53 +1114,27 @@ if results_df.empty:
                 st.write(f"- {failure}")
     st.stop()
 
-if filtered_results_df.empty:
-    st.warning("No assets match the selected asset-class filter.")
-    st.stop()
-
-long_count = int((filtered_results_df["Setup Score"] >= active_long_threshold).sum())
-short_count = int((filtered_results_df["Setup Score"] <= active_short_threshold).sum())
-compression_count = int((filtered_results_df["Setup"] == "Compression").sum())
-long_entry_count = int((filtered_results_df["Alert"] == "Long Entry").sum())
-short_entry_count = int((filtered_results_df["Alert"] == "Short Entry").sum())
-exit_count = int(filtered_results_df["Alert"].isin(["Long Exit", "Short Exit"]).sum())
-leader = filtered_results_df.iloc[0]
-breadth = ((filtered_results_df["Setup Score"] > active_long_threshold).sum() - (filtered_results_df["Setup Score"] < active_short_threshold).sum()) / max(len(filtered_results_df), 1)
+long_count = int((results_df["Setup Score"] >= 57).sum())
+short_count = int((results_df["Setup Score"] <= 43).sum())
+compression_count = int((results_df["Setup"] == "Compression").sum())
+leader = results_df.iloc[0]
+breadth = ((results_df["Setup Score"] > 57).sum() - (results_df["Setup Score"] < 43).sum()) / max(len(results_df), 1)
 breadth_label = "Bullish" if breadth > 0.15 else "Bearish" if breadth < -0.15 else "Balanced"
-class_leaders = (
-    filtered_results_df.sort_values(["Ranking Score", "Setup Score"], ascending=[False, False])
-    .drop_duplicates(subset=["Asset Class"])
-    .reset_index(drop=True)
-)
 
 c1, c2, c3, c4 = st.columns([1, 1, 1, 1.4])
-c1.metric("Assets Shown", f"{len(filtered_results_df)}/{len(results_df)}")
+c1.metric("Assets Scanned", f"{len(results_df)}")
 c2.metric("Long Bias", f"{long_count}")
 c3.metric("Short Bias", f"{short_count}")
-c4.metric("Top Alert", f"{leader['Asset']} ({leader['Alert']})")
+c4.metric("Top Priority", f"{leader['Asset']} ({leader['Setup']})")
 
 d1, d2, d3, d4 = st.columns([1, 1, 1.2, 1])
 d1.metric("Compressions", f"{compression_count}")
 d2.metric("Timeframe", active_timeframe)
 d3.metric("Breadth", breadth_label, f"{breadth:+.0%}")
-d4.metric("Median Confidence", f"{filtered_results_df['Confidence'].median():.2f}")
-
-e1, e2, e3, e4 = st.columns(4)
-e1.metric("Long Entries", f"{long_entry_count}")
-e2.metric("Short Entries", f"{short_entry_count}")
-e3.metric("Exit Alerts", f"{exit_count}")
-e4.metric("Thresholds", f"{active_long_threshold:.0f}/{active_short_threshold:.0f}")
-
-if not class_leaders.empty:
-    st.subheader("Class Leaders")
-    for start in range(0, len(class_leaders), 4):
-        chunk = class_leaders.iloc[start : start + 4]
-        cols = st.columns(len(chunk))
-        for col, (_, row) in zip(cols, chunk.iterrows()):
-            col.metric(str(row["Asset Class"]), str(row["Asset"]), f'{row["Alert"]} | {row["Setup Score"]:.1f}')
+d4.metric("Median Confidence", f"{results_df['Confidence'].median():.2f}")
 
 display_df = (
-    filtered_results_df.drop(columns=["Directional Edge", "Ranking Score"], errors="ignore")
+    results_df.drop(columns=["Directional Edge", "Ranking Score"], errors="ignore")
     .head(top_n)
     .copy()
 )
@@ -1577,48 +1149,6 @@ st.download_button(
 )
 
 st.plotly_chart(build_scatter_chart(display_df), use_container_width=True, config={"displayModeBar": False})
-
-valid_backtests = pd.DataFrame()
-if isinstance(backtest_df, pd.DataFrame) and not backtest_df.empty:
-    valid_backtests = backtest_df.copy()
-    for column, default_value in {"Asset Class": "Unknown", "Signals": 0, "Hit Rate": np.nan, "Avg Return %": np.nan}.items():
-        if column not in valid_backtests.columns:
-            valid_backtests[column] = default_value
-    for column in ["Signals", "Hit Rate", "Avg Return %"]:
-        if column in valid_backtests.columns:
-            valid_backtests[column] = pd.to_numeric(valid_backtests[column], errors="coerce")
-    valid_backtests = valid_backtests[valid_backtests["Signals"].fillna(0) > 0]
-
-if not valid_backtests.empty:
-    total_signals = int(valid_backtests["Signals"].sum())
-    weighted_hit_rate = float((valid_backtests["Hit Rate"] * valid_backtests["Signals"]).sum() / total_signals)
-    weighted_avg_return = float((valid_backtests["Avg Return %"] * valid_backtests["Signals"]).sum() / total_signals)
-    best_backtest_row = valid_backtests.sort_values("Avg Return %", ascending=False).iloc[0]
-
-    st.subheader("Backtest Snapshot")
-    b1, b2, b3, b4 = st.columns(4)
-    b1.metric("Signals", f"{total_signals}")
-    b2.metric("Hit Rate", f"{weighted_hit_rate:.1%}")
-    b3.metric("Avg Signal Return", f"{weighted_avg_return:+.2f}%")
-    b4.metric("Best Asset", str(best_backtest_row["Asset"]), f'{best_backtest_row["Avg Return %"]:+.2f}%')
-
-    class_backtest_rows: list[dict[str, object]] = []
-    for asset_class, group in valid_backtests.groupby("Asset Class", dropna=False):
-        group_signals = int(group["Signals"].sum())
-        class_backtest_rows.append(
-            {
-                "Asset Class": asset_class,
-                "Signals": group_signals,
-                "Hit Rate": (group["Hit Rate"] * group["Signals"]).sum() / max(group_signals, 1),
-                "Avg Return %": (group["Avg Return %"] * group["Signals"]).sum() / max(group_signals, 1),
-            }
-        )
-    class_backtest = pd.DataFrame(class_backtest_rows)
-    st.dataframe(class_backtest, use_container_width=True, hide_index=True)
-    if isinstance(trades_df, pd.DataFrame) and not trades_df.empty:
-        st.plotly_chart(build_equity_curve_chart(trades_df), use_container_width=True, config={"displayModeBar": False})
-else:
-    st.info("Backtest snapshot will appear after the current scan generates entry signals.")
 
 selected_symbol = st.selectbox("Inspect asset", display_df["Asset"].tolist(), index=0)
 selected_history = histories.get(selected_symbol)
@@ -1637,12 +1167,6 @@ with st.expander("Methodology", expanded=False):
 - `Momentum Z`, `Acceleration Z`, `Trend Z`, and `RVOL Z` use a causal rolling baseline that only looks at prior bars.
 - `Squeeze` uses Bollinger Bands inside Keltner Channels, and the post-release boost only survives for a short decay window after a real compression.
 - `Regime` now requires price above or below `EMA200`, confirmation from `EMA50`, and a slower `EMA200` slope so it does not flip on one noisy bar.
-- `Alerts` convert the score into explicit `Long Entry`, `Short Entry`, `Exit`, and `Watch` states using score transitions plus regime confirmation.
-- `Asset Class` labels let the dashboard rank crypto, futures, indices, and equities without losing class context.
-- `Thresholds` are configurable from the sidebar, so long/short interpretation can be tightened or relaxed without changing the code.
-- `Asset-class filters` let you inspect only the slices of the market you want while keeping the full scan in memory.
-- `Backtest Snapshot` measures forward returns after entry alerts so you can judge whether the current signal logic has recent follow-through.
-- `Equity Curve` compounds historical alert returns trade by trade, so you can see whether the edge is stable or just episodic.
 - `Setup Score` is bounded from `0` to `100` with `tanh`, which keeps tails informative without letting a single component dominate.
 - `Auto-adjusted` OHLC reduces split and dividend contamination for equities when mixing stocks, futures, and crypto in one watchlist.
 - `Confidence` is a secondary quality readout, not a trading signal. It rewards cleaner trend alignment and stronger directional separation.

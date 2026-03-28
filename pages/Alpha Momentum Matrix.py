@@ -15,7 +15,7 @@ st.markdown("""
         background-color: #161616;
         border: 1px solid #2A2A2A;
     }
-    /* Estilização do Botão Primário da Sidebar */
+    /* Primary Sidebar Button Styling */
     button[kind="primary"] {
         background-color: #00FFAA !important;
         color: #0F0F0F !important;
@@ -49,7 +49,7 @@ def fetch_market_data(symbol, period, interval):
         return _flatten_columns(df)
     return pd.DataFrame()
 
-# --- 3. CORE MATHEMATICS (INTOCADO - V5.1 CONTINUOUS ENGINE) ---
+# --- 3. CORE MATHEMATICS (UNTOUCHED - V5.1 CONTINUOUS ENGINE) ---
 def _rolling_zscore(series, window):
     return (series - series.rolling(window).mean()) / series.rolling(window).std()
 
@@ -104,7 +104,7 @@ def calculate_signals_v5_1(df, timeframe, full_history=False):
     else:
         return data.iloc[-1:]
 
-# --- 4. VISUAL ENGINE (INTOCADO) ---
+# --- 4. VISUAL ENGINE (UNTOUCHED) ---
 def style_matrix(res_df):
     def score_color(val):
         alpha = min(abs(val - 50) / 40, 0.6)
@@ -172,11 +172,11 @@ def build_deep_inspection_chart(symbol, df):
     fig.update_yaxes(showgrid=False, zeroline=False)
     return fig
 
-# --- 5. MAIN DASHBOARD (UI REFINADO) ---
+# --- 5. MAIN DASHBOARD (REFINED UI) ---
 st.title("🛡️ Alpha Momentum Matrix")
 st.caption("Quantitative Engine V5.1 Active | Hedged against Data Leakage & Overfitting")
 
-# --- TERMINAL CONFIG (PROFISSIONALIZADO) ---
+# --- COMMAND CENTER (PROFESSIONALIZED) ---
 with st.sidebar:
     st.markdown("<h2 style='text-align: center; color: #00FFAA; letter-spacing: 2px;'>⚙️ COMMAND CENTER</h2>", unsafe_allow_html=True)
     st.markdown("<hr style='border-color: #2A2A2A;'>", unsafe_allow_html=True)
@@ -223,7 +223,7 @@ if btn:
 if not st.session_state['results_df'].empty:
     res_df = st.session_state['results_df']
     
-    # --- MARKET SENTIMENT IMPACTANTE ---
+    # --- HIGH-IMPACT MARKET SENTIMENT ---
     top_asset = res_df.iloc[0]
     sentiment_is_bull = res_df['Score'].mean() > 50
     sentiment_text = "BULLISH 🟢" if sentiment_is_bull else "BEARISH 🔴"
@@ -242,7 +242,7 @@ if not st.session_state['results_df'].empty:
         </div>
         <div style="flex: 1; background-color: #161616; padding: 20px; border-radius: 8px; border: 1px solid #2A2A2A; text-align: center; min-width: 200px;">
             <p style="color: #888; font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: 1px;">Squeeze Alerts</p>
-            <h2 style="color: #0055FF; margin: 5px 0 0 0; font-size: 28px;">{sqz_count} <span style="font-size: 14px; color: #888;">ATIVOS</span></h2>
+            <h2 style="color: #0055FF; margin: 5px 0 0 0; font-size: 28px;">{sqz_count} <span style="font-size: 14px; color: #888;">ASSETS</span></h2>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -252,11 +252,11 @@ if not st.session_state['results_df'].empty:
     
     st.divider()
     
-    # --- LEGENDA DO RADAR TÁTICO ---
+    # --- TACTICAL RADAR LEGEND ---
     st.markdown("""
     <div style="padding: 12px 20px; background-color: #161616; border-left: 4px solid #00FFAA; border-radius: 4px; margin-bottom: -15px;">
-        <span style="color: #EAF2FF; font-weight: bold; font-size: 16px;">🎯 RADAR DE EDGE:</span>
-        <span style="color: #A0AEC0; font-size: 14px;"> <b>Cima Direita:</b> Expansão Institucional (Long) &nbsp;|&nbsp; <b>Baixo Esquerda:</b> Capitulação (Short)</span>
+        <span style="color: #EAF2FF; font-weight: bold; font-size: 16px;">🎯 EDGE RADAR:</span>
+        <span style="color: #A0AEC0; font-size: 14px;"> <b>Top Right:</b> Institutional Expansion (Long) &nbsp;|&nbsp; <b>Bottom Left:</b> Capitulation (Short)</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -278,11 +278,11 @@ if not st.session_state['results_df'].empty:
         if len(target_hist) > 200:
             full_sigs = calculate_signals_v5_1(target_hist, tf, full_history=True)
             
-            # --- LEGENDA DO RAIO-X INSTITUCIONAL ---
+            # --- INSTITUTIONAL X-RAY LEGEND ---
             st.markdown("""
             <div style="padding: 12px 20px; background-color: #161616; border-left: 4px solid #0055FF; border-radius: 4px; margin-bottom: -15px;">
-                <span style="color: #EAF2FF; font-weight: bold; font-size: 16px;">🔬 RAIO-X INSTITUCIONAL:</span>
-                <span style="color: #A0AEC0; font-size: 14px;"> <b>Zonas Azuis:</b> Squeeze Ativo &nbsp;|&nbsp; <b>Barras Volume (Verde/Vermelho):</b> Injeção Institucional (>1.2x)</span>
+                <span style="color: #EAF2FF; font-weight: bold; font-size: 16px;">🔬 INSTITUTIONAL X-RAY:</span>
+                <span style="color: #A0AEC0; font-size: 14px;"> <b>Blue Zones:</b> Active Squeeze &nbsp;|&nbsp; <b>Volume Bars (Green/Red):</b> Institutional Injection (>1.2x)</span>
             </div>
             """, unsafe_allow_html=True)
             

@@ -1,13 +1,14 @@
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-import streamlit as st
+import pandas_ta as ta
 import yfinance as yf
-from plotly.subplots import make_subplots
+import streamlit as st
+import plotly.graph_objects as go
 
-# --- CORE SETTINGS & THEME ---
+# --- PAGE SETUP ---
 st.set_page_config(page_title="Alpha Momentum Matrix V5", layout="wide")
 
+# Custom CSS for a clean Institutional Dark Theme
 st.markdown("""
 <style>
     .main { background-color: #0F0F0F; }
@@ -20,151 +21,116 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Dynamic Lookback Mapping for Statistical Consistency
-TF_LOOKBACKS = {
-    "1h": 240,  # ~2 weeks of intraday data
-    "4h": 180,  # ~1 month of data
-    "1d": 126   # ~6 months of trading days
-}
+# Lookback Configuration
+TF_LOOKBACKS = {"1h": 240, "4h": 180, "1d": 126}
 
-# --- MATHEMATICAL UTILS ---
+# --- MATH CORE ---
 def _flatten_columns(df):
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     return df
 
-def _ema(series, length):
-    return series.ewm(span=length, adjust=False, min_periods=length).mean()
-
 def _rolling_zscore(series, window):
-    rolling_mean = series.rolling(window=window, min_periods=window//2).mean()
-    rolling_std = series.rolling(window=window, min_periods=window//2).std()
-    return (series - rolling_mean) / rolling_std.replace(0, np.nan)
+    return (series - series.rolling(window).mean()) / series.rolling(window).std()
 
-# --- SIGNAL CALCULATOR (V5 HARDCORE) ---
+# --- ENGINE V5 ---
 def calculate_signals_v5(df, timeframe):
     data = df.copy()
-    z_window = TF_LOOKBACKS.get(timeframe, 126)
+    z_win = TF_LOOKBACKS.get(timeframe, 126)
     
-    # 1. Volatility Basis
-    ema20 = _ema(data['Close'], 20)
-    ema200 = _ema(data['Close'], 200)
+    ema20 = data['Close'].ewm(span=20, adjust=False).mean()
+    ema200 = data['Close'].ewm(span=200, adjust=False).mean()
     
-    # ATR for normalization
-    prev_close = data['Close'].shift(1)
+    # ATR & Squeeze
     tr = pd.concat([(data['High'] - data['Low']), 
-                    (data['High'] - prev_close).abs(), 
-                    (data['Low'] - prev_close).abs()], axis=1).max(axis=1)
+                    (data['High'] - data['Close'].shift(1)).abs(), 
+                    (data['Low'] - data['Close'].shift(1)).abs()], axis=1).max(axis=1)
     atr20 = tr.ewm(alpha=1/20, adjust=False).mean()
-
-    # 2. Squeeze Dynamics & Exponential Decay
-    bb_std = data['Close'].rolling(20).std()
-    sqz_on = (bb_std * 2.0 < 1.5 * atr20) 
     
-    # Squeeze Duration & Decay Factor
-    # Decay ensures that a 'Fire' signal loses relevance over 5 bars
-    sqz_group = (~sqz_on).cumsum()
-    sqz_duration = sqz_on.groupby(sqz_group).cumsum()
-    sqz_fired = (~sqz_on) & (sqz_on.shift(1))
+    sqz_on = (data['Close'].rolling(20).std() * 2.0 < 1.5 * atr20)
     
-    # Decay Calculation: 1.0 (at fire) down to 0.0 (after 5 bars)
+    # Decay Logic (The Edge)
     fired_counter = (~sqz_on).groupby(sqz_on.cumsum()).cumsum()
-    sqz_decay = np.where(fired_counter <= 5, (6 - fired_counter) / 5, 0)
-    sqz_decay = np.where(sqz_on, 0, sqz_decay)
-
-    # 3. Momentum & Acceleration (Z-Score Calibrated)
-    mom_raw = (data['Close'] - ema20) / atr20.replace(0, np.nan)
-    mom_z = _rolling_zscore(_ema(mom_raw, 5), z_window)
-    accel_z = _rolling_zscore(mom_z.diff(), z_window)
+    sqz_decay = np.where((~sqz_on) & (fired_counter <= 5), (6 - fired_counter) / 5, 0)
     
-    # 4. Relative Volume (RVOL)
+    # Momentum & Acceleration
+    mom_raw = (data['Close'] - ema20) / atr20.replace(0, np.nan)
+    mom_z = _rolling_zscore(mom_raw.ewm(span=5).mean(), z_win)
+    acc_z = _rolling_zscore(mom_z.diff(), z_win)
+    
+    # Volume
     rvol = data['Volume'] / data['Volume'].rolling(20).mean()
-    rvol_z = _rolling_zscore(np.log(rvol.replace(0, np.nan)), z_window)
+    rvol_z = _rolling_zscore(np.log(rvol.replace(0, np.nan)), z_win)
 
-    # 5. Adaptive Setup Score (Weight Re-distribution)
-    # Weights shifted towards Acceleration for Intraday accuracy
+    # Scoring Weights
     w_mom, w_acc, w_vol = (0.45, 0.40, 0.15) if timeframe != '1d' else (0.55, 0.30, 0.15)
     
-    raw_score = (w_mom * mom_z.clip(-3, 3) + 
-                 w_acc * accel_z.clip(-3, 3) + 
-                 w_vol * rvol_z.clip(-3, 3) * np.sign(mom_z))
+    raw = (w_mom * mom_z.clip(-3, 3) + w_acc * acc_z.clip(-3, 3) + w_vol * rvol_z.clip(-3, 3) * np.sign(mom_z.fillna(0)))
+    bias = np.where(sqz_decay > 0, np.sign(mom_z.fillna(0)) * 0.25 * sqz_decay, 0)
+    regime = np.where((data['Close'] > ema200) & (ema200.diff() > 0), 0.3, 
+                      np.where((data['Close'] < ema200) & (ema200.diff() < 0), -0.3, 0))
     
-    # Add Squeeze Release Bias with Decay
-    release_bias = np.where(sqz_decay > 0, np.sign(mom_z) * 0.25 * sqz_decay, 0)
-    regime_bias = np.where((data['Close'] > ema200) & (ema200.diff() > 0), 0.3, 
-                           np.where((data['Close'] < ema200) & (ema200.diff() < 0), -0.3, 0))
+    score = 50.0 + 40.0 * np.tanh((raw + bias + regime) / 2.0)
     
-    final_score = 50.0 + 40.0 * np.tanh((raw_score + release_bias + regime_bias) / 2.0)
+    data['Score'] = score.fillna(50.0)
+    data['MomZ'] = mom_z.fillna(0)
+    data['AccZ'] = acc_z.fillna(0)
+    data['RVOL'] = rvol.fillna(1.0)
+    data['Squeeze'] = sqz_on
+    return data.iloc[-1:]
 
-    # Output Enrichment
-    data['Score'] = final_score.clip(0, 100)
-    data['MomZ'] = mom_z
-    data['AccZ'] = accel_z
-    data['RVOL'] = rvol
-    data['SqueezeOn'] = sqz_on
-    data['SqueezeDuration'] = sqz_duration
-    data['Regime'] = np.where(regime_bias > 0, "Bull", np.where(regime_bias < 0, "Bear", "Range"))
-    
-    return data.dropna()
+# --- UI STYLING (No Matplotlib dependency) ---
+def style_v5(res_df):
+    def score_color(val):
+        # Green for Bullish (>55), Red for Bearish (<45)
+        alpha = min(abs(val - 50) / 40, 0.6)
+        color = f"rgba(0, 255, 170, {alpha})" if val > 50 else f"rgba(255, 92, 92, {alpha})"
+        return f'background-color: {color}; color: white; font-weight: bold;'
 
-# --- VISUALS: PRO RADAR WITH QUADRANTS ---
-def build_pro_radar(results):
-    fig = go.Figure()
-    
-    # Add Quadrant Shapes for Visual Probability
-    fig.add_vrect(x0=0.5, x1=3.5, fillcolor="rgba(0, 255, 170, 0.05)", line_width=0) # Momentum Bull
-    fig.add_hrect(y0=0.5, y1=3.5, fillcolor="rgba(0, 255, 170, 0.05)", line_width=0) # Acceleration Bull
-    
-    fig.add_trace(go.Scatter(
-        x=results['MomZ'], y=results['AccZ'],
-        mode='markers+text',
-        text=results['Asset'],
-        textposition="top center",
-        marker=dict(
-            size=results['RVOL'].clip(1, 3) * 10,
-            color=results['Score'],
-            colorscale=[[0, '#FF5C5C'], [0.5, '#A0AEC0'], [1, '#00FFAA']],
-            showscale=True,
-            line=dict(width=1, color='white')
-        )
-    ))
+    return res_df.style.map(score_color, subset=['Score']).format({
+        'Score': '{:.1f}', 'Price': '{:.2f}', 'MomZ': '{:+.2f}', 'AccZ': '{:+.2f}', 'RVOL': '{:.2f}x'
+    })
 
-    fig.update_layout(
-        title="Institutional Rotation Radar (Probability Zones)",
-        xaxis=dict(title="Momentum Z-Score", range=[-3.5, 3.5], gridcolor="#222"),
-        yaxis=dict(title="Acceleration Z-Score", range=[-3.5, 3.5], gridcolor="#222"),
-        paper_bgcolor="#0F0F0F", plot_bgcolor="#0F0F0F", height=600,
-        shapes=[
-            dict(type="line", x0=0, y0=-3.5, x1=0, y1=3.5, line=dict(color="white", width=1, dash="dash")),
-            dict(type="line", x0=-3.5, y0=0, x1=3.5, y1=0, line=dict(color="white", width=1, dash="dash"))
-        ]
-    )
-    return fig
-
-# --- MAIN INTERFACE (Simplified for Logic Focus) ---
+# --- MAIN APP ---
 st.title("🛡️ Alpha Momentum Matrix V5")
-watchlist = st.sidebar.text_area("Watchlist", "BTC-USD, ETH-USD, NVDA, TSLA, GC=F").split(",")
-tf = st.sidebar.selectbox("Timeframe", ["1h", "4h", "1d"], index=2)
 
-if st.sidebar.button("Execute Quantitative Scan"):
-    all_results = []
-    for symbol in watchlist:
-        symbol = symbol.strip().upper()
-        df = yf.download(symbol, period="100d" if tf != '1d' else "5y", interval="60m" if tf != '1d' else "1d", progress=False)
-        df = _flatten_columns(df)
+with st.sidebar:
+    st.header("Radar Controls")
+    watchlist = st.text_area("Watchlist", "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, TSLA, NVDA").split(",")
+    tf = st.selectbox("Timeframe", ["1h", "4h", "1d"], index=2)
+    btn = st.button("EXECUTE QUANT SCAN")
+
+if btn:
+    results = []
+    with st.spinner("Analyzing Market Structure..."):
+        for symbol in [s.strip().upper() for s in watchlist if s.strip()]:
+            try:
+                # Optimized Download
+                hist = yf.download(symbol, period="2y", interval="1d" if tf == "1d" else "60m", progress=False)
+                hist = _flatten_columns(hist)
+                if len(hist) > 150:
+                    last_row = calculate_signals_v5(hist, tf)
+                    results.append({
+                        "Asset": symbol,
+                        "Price": last_row['Close'].values[0],
+                        "Score": last_row['Score'].values[0],
+                        "MomZ": last_row['MomZ'].values[0],
+                        "AccZ": last_row['AccZ'].values[0],
+                        "RVOL": last_row['RVOL'].values[0],
+                        "Squeeze": "🔴 ON" if last_row['Squeeze'].values[0] else "🟢 OFF"
+                    })
+            except Exception as e:
+                st.error(f"Error {symbol}: {e}")
+
+    if results:
+        res_df = pd.DataFrame(results).sort_values("Score", ascending=False)
         
-        if not df.empty and len(df) > 200:
-            processed = calculate_signals_v5(df, tf)
-            last = processed.iloc[-1]
-            all_results.append({
-                "Asset": symbol, "Score": last['Score'], "MomZ": last['MomZ'],
-                "AccZ": last['AccZ'], "RVOL": last['RVOL'], "Squeeze": last['SqueezeOn'],
-                "Regime": last['Regime']
-            })
-    
-    if all_results:
-        res_df = pd.DataFrame(all_results).sort_values("Score", ascending=False)
+        # High-Value Metrics
+        c1, c2 = st.columns(2)
+        top_asset = res_df.iloc[0]
+        c1.metric("Top Alpha Pick", top_asset['Asset'], f"{top_asset['Score']:.1f} Score")
+        c2.metric("Market Sentiment", "BULLISH" if res_df['Score'].mean() > 50 else "BEARISH")
         
-        st.metric("Top Alpha Pick", res_df.iloc[0]['Asset'], f"{res_df.iloc[0]['Score']:.1f} Score")
-        st.dataframe(res_df.style.background_gradient(subset=['Score'], cmap='RdYlGn'))
-        st.plotly_chart(build_pro_radar(res_df), use_container_width=True)
+        st.dataframe(style_v5(res_df), use_container_width=True)
+    else:
+        st.warning("No data found. Check tickers.")

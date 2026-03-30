@@ -504,7 +504,7 @@ TIMEFRAME_CONFIG = {
     },
 }
 
-DEFAULT_WATCHLIST = "BTC-USD, ETH-USD, SOL-USD, GC=F, NQ=F, AAPL"
+DEFAULT_WATCHLIST = "BTC-USD, ETH-USD, SOL-USD, SUI-USD, NQ=F, TRX-USD"
 
 
 def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:

@@ -468,7 +468,7 @@ st.caption(
 TIMEFRAME_CONFIG = {
     "1h": {
         "download_interval": "60m",
-        "period": "730d",
+        "period": "720d", # FIX: Changed from 730d to prevent strict-limit YFinance empty fetches
         "resample": None,
         "z_window": 240,
         "regime_window": 72,
@@ -480,7 +480,7 @@ TIMEFRAME_CONFIG = {
     },
     "4h": {
         "download_interval": "60m",
-        "period": "730d",
+        "period": "720d", # FIX: Changed from 730d to prevent strict-limit YFinance empty fetches
         "resample": "4h",
         "z_window": 180,
         "regime_window": 45,
@@ -778,7 +778,10 @@ def calculate_signals(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
 
     data = df.copy()
     close = data["Close"]
-    volume = data["Volume"].where(data["Volume"] > 0.0, np.nan)
+    
+    # FIX: Prevent NaN propagation from zero-volume bars (thin hours) wiping out valid history.
+    # We enforce a minimal value instead of NaN, ensuring perfectly smooth RVOL calculations.
+    volume = data["Volume"].fillna(1e-6).replace(0.0, 1e-6)
 
     ema_20 = _ema(close, 20)
     ema_50 = _ema(close, 50)

@@ -339,25 +339,47 @@ st.markdown(
         display: inline-block;
     }
 
-    section[data-testid="stSidebar"] .watchlist-preview {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 10px;
-        margin-bottom: 4px;
+    /* CSS para o novo Multiselect interativo (Substitui a área de texto antiga) */
+    div[data-baseweb="select"] > div {
+        background-color: #0C1119 !important;
+        border: 1px solid #1F2B3D !important;
+        border-radius: 12px !important;
+    }
+    
+    div[data-baseweb="select"] > div:hover {
+        border-color: rgba(0, 229, 255, 0.48) !important;
     }
 
-    section[data-testid="stSidebar"] .watchlist-chip {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: rgba(28, 37, 54, 0.95);
-        border: 1px solid rgba(141, 154, 175, 0.16);
-        color: #C8D2E0;
-        font-size: 0.75rem;
-        font-weight: 700;
+    span[data-baseweb="tag"] {
+        background-color: rgba(28, 37, 54, 0.95) !important;
+        border: 1px solid rgba(141, 154, 175, 0.16) !important;
+        border-radius: 999px !important;
+        padding: 2px 6px !important;
+    }
+
+    span[data-baseweb="tag"] span {
+        color: #C8D2E0 !important;
+        font-size: 0.75rem !important;
+        font-weight: 700 !important;
+    }
+    
+    span[data-baseweb="tag"] svg {
+        fill: #C8D2E0 !important;
+    }
+
+    /* Input custom ticker */
+    section[data-testid="stSidebar"] [data-testid="stTextInput"] input {
+        background-color: #0C1119 !important;
+        border: 1px solid #1F2B3D !important;
+        border-radius: 12px !important;
+        color: #EAF2FF !important;
+        font-size: 0.85rem !important;
+        margin-top: -5px;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stTextInput"] input:focus {
+        border-color: rgba(0, 229, 255, 0.48) !important;
+        box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.18) !important;
     }
 
     section[data-testid="stSidebar"] .display-note {
@@ -369,23 +391,6 @@ st.markdown(
         color: #8EA0B7;
         font-size: 0.80rem;
         line-height: 1.45;
-    }
-
-    section[data-testid="stSidebar"] [data-testid="stTextArea"] textarea {
-        min-height: 132px !important;
-        border-radius: 18px !important;
-        background: #0C1119 !important;
-        border: 1px solid #1F2B3D !important;
-        color: #EAF2FF !important;
-        font-family: Consolas, "SFMono-Regular", Menlo, monospace !important;
-        font-size: 0.95rem !important;
-        line-height: 1.55 !important;
-        padding-top: 16px !important;
-    }
-
-    section[data-testid="stSidebar"] [data-testid="stTextArea"] textarea:focus {
-        border-color: rgba(0, 229, 255, 0.48) !important;
-        box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.18) !important;
     }
 
     section[data-testid="stSidebar"] [data-testid="stRadio"] {
@@ -468,7 +473,7 @@ st.caption(
 TIMEFRAME_CONFIG = {
     "1h": {
         "download_interval": "60m",
-        "period": "720d", # FIX: Changed from 730d to prevent strict-limit YFinance empty fetches
+        "period": "720d", 
         "resample": None,
         "z_window": 240,
         "regime_window": 72,
@@ -480,7 +485,7 @@ TIMEFRAME_CONFIG = {
     },
     "4h": {
         "download_interval": "60m",
-        "period": "720d", # FIX: Changed from 730d to prevent strict-limit YFinance empty fetches
+        "period": "720d", 
         "resample": "4h",
         "z_window": 180,
         "regime_window": 45,
@@ -504,7 +509,16 @@ TIMEFRAME_CONFIG = {
     },
 }
 
-DEFAULT_WATCHLIST = "BTC-USD, ETH-USD, SOL-USD, SUI-USD, NQ=F, TRX-USD"
+# Novo sistema centralizado de ativos
+DEFAULT_WATCHLIST = ["BTC-USD", "ETH-USD", "SOL-USD", "SUI-USD", "NQ=F", "TRX-USD", "AAPL", "GC=F"]
+TICKER_POOL = [
+    "BTC-USD", "ETH-USD", "SOL-USD", "SUI-USD", "TRX-USD", "BNB-USD", "XRP-USD", "ADA-USD", "DOT-USD",
+    "GC=F", "SI=F", "CL=F", "NQ=F", "ES=F", "YM=F",
+    "AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "META", "GOOGL", "MSTR", "COIN"
+]
+for t in DEFAULT_WATCHLIST:
+    if t not in TICKER_POOL:
+        TICKER_POOL.append(t)
 
 
 def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -779,8 +793,6 @@ def calculate_signals(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     data = df.copy()
     close = data["Close"]
     
-    # FIX: Prevent NaN propagation from zero-volume bars (thin hours) wiping out valid history.
-    # We enforce a minimal value instead of NaN, ensuring perfectly smooth RVOL calculations.
     volume = data["Volume"].fillna(1e-6).replace(0.0, 1e-6)
 
     ema_20 = _ema(close, 20)
@@ -1273,14 +1285,17 @@ with st.sidebar:
             """,
             unsafe_allow_html=True,
         )
-        watchlist_text = st.text_area("Watchlist", DEFAULT_WATCHLIST, height=120, label_visibility="collapsed")
-
-        preview_tickers = _clean_watchlist(watchlist_text)[:6]
-        preview_html = "".join(
-            f'<span class="watchlist-chip">{html.escape(ticker)}</span>'
-            for ticker in preview_tickers
+        
+        # O novo Multiselect interativo substitui a velha caixa de texto
+        selected_tickers = st.multiselect(
+            "Watchlist",
+            options=TICKER_POOL,
+            default=DEFAULT_WATCHLIST,
+            label_visibility="collapsed"
         )
-        st.markdown(f'<div class="watchlist-preview">{preview_html}</div>', unsafe_allow_html=True)
+        
+        # Um pequeno input opcional para ativos customizados que não estejam na pool
+        custom_ticker = st.text_input("Add missing ticker", placeholder="e.g. MSTR, PLTR", label_visibility="collapsed")
 
         st.markdown('<div class="radar-field-label">Timeframe</div>', unsafe_allow_html=True)
         tf = st.radio("Timeframe", ["1h", "4h", "1d"], horizontal=True, index=2, label_visibility="collapsed")
@@ -1299,7 +1314,15 @@ if "watchlist" not in st.session_state:
 
 if btn:
     results = []
-    st.session_state["watchlist"] = _clean_watchlist(watchlist_text)
+    
+    # Processamos os tickers escolhidos e adicionamos o custom caso exista
+    final_watchlist = list(selected_tickers)
+    if custom_ticker:
+        for t in _clean_watchlist(custom_ticker):
+            if t not in final_watchlist:
+                final_watchlist.append(t)
+                
+    st.session_state["watchlist"] = final_watchlist
 
     with st.spinner("Calculating Statistical Edge..."):
         for symbol in st.session_state["watchlist"]:

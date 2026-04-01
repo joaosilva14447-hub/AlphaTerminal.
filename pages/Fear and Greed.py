@@ -3,6 +3,7 @@ import requests
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+import time
 
 # Standard AlphaTerminal Configuration
 st.set_page_config(page_title="Fear & Greed Official", layout="wide")
@@ -44,17 +45,35 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_fng_data(limit=365):
-    try:
-        r = requests.get(f"https://api.alternative.me/fng/?limit={limit}", timeout=5)
-        data = r.json()
-        df = pd.DataFrame(data["data"])
-        df["value"] = df["value"].astype(int)
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
-        return df.sort_values("timestamp")
-    except Exception:
-        return None
+    url = f"https://api.alternative.me/fng/?limit={limit}"
+    max_retries = 3
+    base_timeout = 10 
+    
+    for attempt in range(max_retries):
+        try:
+            r = requests.get(url, timeout=base_timeout)
+            r.raise_for_status() 
+            
+            data = r.json()
+            if "data" not in data:
+                continue 
+                
+            df = pd.DataFrame(data["data"])
+            df["value"] = df["value"].astype(int)
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s")
+            return df.sort_values("timestamp")
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(2) 
+                continue
+            else:
+                st.cache_data.clear()
+                return None
+                
+    return None
 
 def state_from_value(value: int):
     # Mapping logic enforcing Alpha Institutional Palette

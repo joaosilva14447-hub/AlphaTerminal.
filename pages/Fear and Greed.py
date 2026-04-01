@@ -51,9 +51,17 @@ def get_fng_data(limit=365):
     max_retries = 3
     base_timeout = 10 
     
+    # Camuflagem de Browser Institucional (Bypass de Firewalls básicos)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json"
+    }
+    
     for attempt in range(max_retries):
         try:
-            r = requests.get(url, timeout=base_timeout)
+            r = requests.get(url, headers=headers, timeout=base_timeout)
+            
+            # Se a API der erro HTTP, força a falha para cair no except
             r.raise_for_status() 
             
             data = r.json()
@@ -71,6 +79,12 @@ def get_fng_data(limit=365):
                 continue
             else:
                 st.cache_data.clear()
+                # TELEMETRIA: Expõe a verdadeira causa do colapso na barra lateral
+                st.sidebar.error("🚨 SYSTEM ALERT: API FAILURE 🚨")
+                st.sidebar.error(f"Log: {str(e)}")
+                if 'r' in locals():
+                    st.sidebar.warning(f"Status Code: {r.status_code}")
+                    st.sidebar.warning(f"Response: {r.text[:150]}")
                 return None
                 
     return None

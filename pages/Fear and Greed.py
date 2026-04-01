@@ -67,9 +67,6 @@ def get_fng_data(limit=365):
                 
             df = pd.DataFrame(data["data"])
             df["value"] = df["value"].astype(int)
-            
-            # --- O DETALHE CRÍTICO CORRIGIDO ---
-            # Convertido para Inteiro ANTES de transformar em data
             df["timestamp"] = pd.to_datetime(df["timestamp"].astype(int), unit="s")
             
             return df.sort_values("timestamp")
@@ -156,9 +153,11 @@ if df_hist is not None:
     with chart_col:
         fig_hist = go.Figure()
         
-        # High-Performance Density Interpolation Logic
-        # Resamples to 2-hour intervals for sub-day threshold precision
-        df_dense = df_hist.set_index('timestamp').resample('2h').interpolate(method='linear').reset_index()
+        # High-Performance Density Interpolation Logic [CORRIGIDO]
+        # Isolamos APENAS as colunas numéricas ('timestamp' e 'value') para evitar o TypeError nas colunas de texto
+        df_dense = df_hist[['timestamp', 'value']].set_index('timestamp').resample('2h').interpolate(method='linear').reset_index()
+        
+        # Reconstruímos as cores da linha perfeitamente após o cálculo matemático
         df_dense["state_color"] = df_dense["value"].apply(lambda v: state_from_value(int(v))[1])
         
         # Group points by consecutive colors to build unified segments (prevents plot crashing)
